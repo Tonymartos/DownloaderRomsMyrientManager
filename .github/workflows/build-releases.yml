@@ -1,0 +1,209 @@
+name: Build Multi-Platform Releases
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0
+  workflow_dispatch:  # Allows manual trigger from GitHub Actions tab
+
+# Add explicit permissions for creating releases
+permissions:
+  contents: write  # Required to create releases and upload assets
+
+jobs:
+  build-linux:
+    name: Build for Linux
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build executables
+      run: python build.py
+    
+    - name: Create archive
+      run: |
+        cd dist
+        tar -czf myrient-manager-linux-x64.tar.gz linux/
+        cd ..
+    
+    - name: Upload Linux artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-build
+        path: dist/myrient-manager-linux-x64.tar.gz
+        retention-days: 7
+
+  build-windows:
+    name: Build for Windows
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build executables
+      run: python build.py
+    
+    - name: Create archive
+      run: |
+        cd dist
+        Compress-Archive -Path windows -DestinationPath myrient-manager-windows-x64.zip
+        cd ..
+      shell: powershell
+    
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-build
+        path: dist/myrient-manager-windows-x64.zip
+        retention-days: 7
+
+  build-macos:
+    name: Build for macOS
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build executables
+      run: python build.py
+    
+    - name: Create archive
+      run: |
+        cd dist
+        tar -czf myrient-manager-macos-universal.tar.gz macos/
+        cd ..
+    
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-build
+        path: dist/myrient-manager-macos-universal.tar.gz
+        retention-days: 7
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Display structure
+      run: ls -R artifacts
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          artifacts/linux-build/myrient-manager-linux-x64.tar.gz
+          artifacts/windows-build/myrient-manager-windows-x64.zip
+          artifacts/macos-build/myrient-manager-macos-universal.tar.gz
+        body: |
+          ## 🎮 Myrient ROM Manager Release
+          
+          ### 📦 Downloads
+          
+          Choose the appropriate version for your operating system:
+          
+          - **🐧 Linux (x64)**: `myrient-manager-linux-x64.tar.gz`
+          - **🪟 Windows (x64)**: `myrient-manager-windows-x64.zip`
+          - **🍎 macOS (Universal)**: `myrient-manager-macos-universal.tar.gz`
+          
+          ### 📋 What's Included
+          
+          Each archive contains:
+          - `myrient-manager` - Interactive mode with visual menu
+          - `myrient-download` - Command-line mode for automation
+          - `myrient-preview` - Preview mode (analyze without downloading)
+          - `README.txt` - Usage instructions
+          
+          ### 🚀 Quick Start
+          
+          **Linux/macOS:**
+          ```bash
+          # Extract
+          tar -xzf myrient-manager-*.tar.gz
+          cd linux/  # or macos/
+          
+          # Make executable
+          chmod +x myrient-manager
+          
+          # Run
+          ./myrient-manager
+          ```
+          
+          **Windows:**
+          ```cmd
+          # Extract the ZIP file
+          # Double-click myrient-manager.exe
+          # Or run from Command Prompt:
+          .\myrient-manager.exe
+          ```
+          
+          **macOS Security Note:**
+          If macOS blocks the app, run:
+          ```bash
+          xattr -d com.apple.quarantine myrient-manager
+          ```
+          
+          ### ⚖️ Legal Disclaimer
+          
+          This tool is for educational and game preservation purposes only. Users must comply with all applicable copyright laws. See README.md for full legal information.
+          
+          ### 🔗 Links
+          
+          - [Documentation](https://github.com/Tonymartos/DownloaderRomsMyrientManager/blob/main/README.md)
+          - [Build Instructions](https://github.com/Tonymartos/DownloaderRomsMyrientManager/blob/main/BUILD_INSTRUCTIONS.md)
+          - [Report Issues](https://github.com/Tonymartos/DownloaderRomsMyrientManager/issues)
+          
+          ### 💝 Support Myrient
+          
+          Please consider supporting [Myrient](https://myrient.erista.me/) for their invaluable game preservation work!
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,136 @@
+name: Build Test (No Release)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-build-linux:
+    name: Test Build - Linux
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build executables
+      run: python build.py
+    
+    - name: Test executables exist
+      run: |
+        test -f dist/linux/myrient-manager
+        test -f dist/linux/myrient-download
+        test -f dist/linux/myrient-preview
+        echo "✅ All Linux executables built successfully"
+    
+    - name: Upload build artifacts (for download)
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-linux-build
+        path: dist/linux/
+        retention-days: 3
+
+  test-build-windows:
+    name: Test Build - Windows
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build executables
+      run: python build.py
+    
+    - name: Test executables exist
+      run: |
+        if (!(Test-Path dist\windows\myrient-manager.exe)) { exit 1 }
+        if (!(Test-Path dist\windows\myrient-download.exe)) { exit 1 }
+        if (!(Test-Path dist\windows\myrient-preview.exe)) { exit 1 }
+        Write-Host "✅ All Windows executables built successfully"
+      shell: powershell
+    
+    - name: Upload build artifacts (for download)
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-windows-build
+        path: dist/windows/
+        retention-days: 3
+
+  test-build-macos:
+    name: Test Build - macOS
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build executables
+      run: python build.py
+    
+    - name: Test executables exist
+      run: |
+        test -f dist/macos/myrient-manager
+        test -f dist/macos/myrient-download
+        test -f dist/macos/myrient-preview
+        echo "✅ All macOS executables built successfully"
+    
+    - name: Upload build artifacts (for download)
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-macos-build
+        path: dist/macos/
+        retention-days: 3
+
+  test-summary:
+    name: Build Summary
+    needs: [test-build-linux, test-build-windows, test-build-macos]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Build Summary
+      run: |
+        echo "🎉 All platform builds completed successfully!"
+        echo "✅ Linux build - OK"
+        echo "✅ Windows build - OK"
+        echo "✅ macOS build - OK"
+        echo ""
+        echo "📦 Artifacts are available for download in the Actions tab"
+        echo "⏱️  Artifacts will be kept for 3 days"
