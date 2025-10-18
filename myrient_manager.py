@@ -42,6 +42,11 @@ class Colors:
     UNDERLINE = '\033[4m'
     END = '\033[0m'
 
+def is_development_mode():
+    """Check if running from source code (development) or compiled executable"""
+    # PyInstaller sets sys.frozen attribute when compiled
+    return not getattr(sys, 'frozen', False)
+
 def print_banner():
     """Prints the welcome banner"""
     banner = f"""
@@ -1795,9 +1800,13 @@ def main():
         
         # Ask for download confirmation
         if ask_yes_no("Do you want to proceed with the download?"):
-            # Ask for test mode
-            test_mode = ask_yes_no("Download only first 20 files for testing?")
-            max_files = 20 if test_mode else None
+            # Ask for test mode (only in development mode)
+            max_files = None
+            if is_development_mode():
+                test_mode = ask_yes_no("Download only first 20 files for testing?")
+                max_files = 20 if test_mode else None
+            else:
+                test_mode = False
             
             # Ask for output directory
             default_output = 'downloads'
