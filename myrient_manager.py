@@ -266,7 +266,7 @@ def parse_size(size_text):
 def analyze_available_languages_and_regions(files):
     """
     Analyzes all files to detect available languages and regions
-    Returns detailed statistics for user selection
+    Returns detailed statistics for user selection, including languages per region
     """
     print(f"\n{Colors.CYAN}🔍 Analyzing {len(files)} files to detect available languages and regions...{Colors.END}")
     
@@ -276,7 +276,37 @@ def analyze_available_languages_and_regions(files):
     language_examples = defaultdict(list)
     region_examples = defaultdict(list)
     
-    # Define language patterns to detect
+    # NEW: Track languages per region
+    languages_by_region = defaultdict(lambda: defaultdict(int))
+    
+    # Define language patterns to detect - ALL possible language codes
+    language_full_names = {
+        'Es': 'Spanish (Spain) 🇪🇸',
+        'En': 'English 🇬🇧🇺🇸',
+        'Fr': 'French (France) 🇫🇷',
+        'De': 'German (Germany) 🇩🇪',
+        'It': 'Italian (Italy) 🇮🇹',
+        'Jp': 'Japanese (Japan) 🇯🇵',
+        'Pt': 'Portuguese (Portugal/Brazil) 🇵🇹🇧🇷',
+        'Nl': 'Dutch (Netherlands) 🇳🇱',
+        'Ru': 'Russian (Russia) 🇷🇺',
+        'Ko': 'Korean (Korea) 🇰🇷',
+        'Zh': 'Chinese (China) 🇨🇳',
+        'Pl': 'Polish (Poland) 🇵🇱',
+        'Sv': 'Swedish (Sweden) 🇸🇪',
+        'No': 'Norwegian (Norway) 🇳🇴',
+        'Da': 'Danish (Denmark) 🇩🇰',
+        'Fi': 'Finnish (Finland) 🇫🇮',
+        'Cs': 'Czech (Czech Republic) 🇨🇿',
+        'Hu': 'Hungarian (Hungary) 🇭🇺',
+        'Ar': 'Arabic 🇸🇦',
+        'He': 'Hebrew (Israel) 🇮🇱',
+        'Tr': 'Turkish (Turkey) 🇹🇷',
+        'El': 'Greek (Greece) 🇬🇷',
+        'Ja': 'Japanese (Japan) 🇯🇵'
+    }
+    
+    # Define language patterns to detect (for general stats)
     language_patterns = {
         'Es': [r'\(Es\)', r'\(.*Es.*\)', r'Spain'],
         'En': [r'\(En\)', r'\(.*En.*\)', r'USA', r'UK', r'Australia'],
@@ -291,19 +321,19 @@ def analyze_available_languages_and_regions(files):
         'Zh': [r'\(Zh\)', r'\(.*Zh.*\)', r'China']
     }
     
-    # Define SIMPLIFIED geographical regions (continents only)
-    region_patterns = {
-        'Europe': [r'\(Europe\)', r'\(.*Europe.*\)', r'Spain', r'France', r'Germany', r'Italy', r'UK', r'Netherlands', r'Poland', r'Russia', r'Scandinavia'],
-        'Americas': [r'\(USA\)', r'\(.*USA.*\)', r'Brazil', r'America'],
-        'Asia': [r'\(Asia\)', r'\(.*Asia.*\)', r'Japan', r'China', r'Korea'],
-        'Oceania': [r'\(Australia\)', r'\(.*Australia.*\)', r'Oceania'],
-        'World': [r'\(World\)', r'\(.*World.*\)', r'Global']
+    # Define SIMPLIFIED geographical regions (continents only) with country mappings
+    region_countries = {
+        'Europe': [r'\(Europe\)', r'\(Spain\)', r'\(France\)', r'\(Germany\)', r'\(Italy\)', r'\(UK\)', r'\(Netherlands\)', r'\(Poland\)', r'\(Russia\)', r'\(Scandinavia\)'],
+        'USA': [r'\(USA\)', r'\(U\)', r'\(Brazil\)', r'\(America\)'],
+        'Asia': [r'\(Japan\)', r'\(China\)', r'\(Korea\)', r'\(Asia\)'],
+        'Oceania': [r'\(Australia\)', r'\(Oceania\)'],
+        'World': [r'\(World\)']
     }
     
     for file_info in files:
         filename = file_info['name']
         
-        # Count languages
+        # Count languages (general)
         for language_code, patterns in language_patterns.items():
             for pattern in patterns:
                 if re.search(pattern, filename, re.IGNORECASE):
@@ -312,20 +342,32 @@ def analyze_available_languages_and_regions(files):
                         language_examples[language_code].append(filename)
                     break
         
-        # Count geographical regions (SIMPLIFIED)
-        for continent, patterns in region_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, filename, re.IGNORECASE):
-                    region_stats[continent] += 1
-                    if len(region_examples[continent]) < 3:
-                        region_examples[continent].append(filename)
-                    break
+        # Count geographical regions and detect languages per region
+        for region, patterns in region_countries.items():
+            if any(re.search(pattern, filename, re.IGNORECASE) for pattern in patterns):
+                region_stats[region] += 1
+                if len(region_examples[region]) < 3:
+                    region_examples[region].append(filename)
+                
+                # Extract language codes from parentheses only (after region info)
+                # Pattern: Find content inside parentheses that contains language codes
+                # Example: (USA) (En,Es,Fr) or (Europe) (En) or (Japan)
+                paren_contents = re.findall(r'\(([^)]+)\)', filename)
+                for content in paren_contents:
+                    # Split by comma to get individual language codes
+                    potential_langs = re.split(r'[,\s]+', content.strip())
+                    for lang_code in potential_langs:
+                        # Only accept if it's a valid 2-letter code in our dictionary
+                        if lang_code in language_full_names:
+                            languages_by_region[region][lang_code] += 1
     
     return {
         'languages': dict(language_stats),
         'regions': dict(region_stats),
         'language_examples': dict(language_examples),
         'region_examples': dict(region_examples),
+        'languages_by_region': dict(languages_by_region),  # NEW: Pre-analyzed languages per region
+        'language_full_names': language_full_names,  # NEW: Full names dictionary
         'total_files': len(files)
     }
 
@@ -578,11 +620,27 @@ def detect_exclusive_games(files, priority_games=None):
         print(f"{Colors.GREEN}✅ Filtered out {priority_duplicates_found} games that already exist in priority language{Colors.END}")
     
     print(f"{Colors.GREEN}✅ Removed {duplicates_removed} cross-country duplicates{Colors.END}")
+    
+    # FILTER: Only keep Japan and Korea exclusives
+    filtered_exclusive_games = {}
+    allowed_countries = ['Japan', 'Korea']
+    
+    for country in allowed_countries:
+        if country in exclusive_games and exclusive_games[country]:
+            filtered_exclusive_games[country] = exclusive_games[country]
+    
+    # Show what was filtered out
+    excluded_countries = [c for c in exclusive_games.keys() if c not in allowed_countries]
+    if excluded_countries:
+        excluded_count = sum(len(exclusive_games[c]) for c in excluded_countries)
+        print(f"{Colors.YELLOW}ℹ️  Filtered out {excluded_count} exclusive games from other regions: {', '.join(excluded_countries)}{Colors.END}")
+        print(f"{Colors.CYAN}📌 Only showing Japan and Korea exclusives{Colors.END}")
+    
     print(f"{Colors.GREEN}📊 Final exclusive games by country:{Colors.END}")
-    for country, games in sorted(exclusive_games.items(), key=lambda x: len(x[1]), reverse=True):
+    for country, games in sorted(filtered_exclusive_games.items(), key=lambda x: len(x[1]), reverse=True):
         print(f"  {country}: {len(games)} unique games")
     
-    return dict(exclusive_games)
+    return dict(filtered_exclusive_games)
 
 def extract_key_words(title):
     """Extracts key identifying words from a game title for duplicate detection"""
@@ -735,7 +793,7 @@ def get_user_priority_selection(analysis, files):
     language_names = {
         'Es': 'Spanish (Spain)',
         'En': 'English',
-        'Fr': 'French (France)', 
+        'Fr': 'French (France)',
         'De': 'German (Germany)',
         'It': 'Italian (Italy)',
         'Jp': 'Japanese (Japan)',
@@ -743,127 +801,296 @@ def get_user_priority_selection(analysis, files):
         'Nl': 'Dutch (Netherlands)',
         'Ru': 'Russian (Russia)',
         'Ko': 'Korean (Korea)',
-        'Zh': 'Chinese (China)'
+        'Zh': 'Chinese (China)',
+        'Pl': 'Polish (Poland)',
+        'Sv': 'Swedish (Sweden)',
+        'No': 'Norwegian (Norway)',
+        'Da': 'Danish (Denmark)',
+        'Fi': 'Finnish (Finland)',
+        'Ja': 'Japanese (Japan)'
     }
     
     # Region code to full name mapping (SIMPLIFIED CONTINENTS)
     region_names = {
         'Europe': 'Europe (Spain, France, Germany, Italy, UK, etc.)',
-        'Americas': 'Americas (USA, Brazil)',
+        'USA': 'USA (United States, Brazil)',
         'Asia': 'Asia (Japan, China, Korea)',
         'Oceania': 'Oceania (Australia)',
         'World': 'World (Global release)'
     }
     
+    # Specific countries mapping
+    country_names = {
+        'Spain': 'Spain 🇪🇸',
+        'France': 'France 🇫🇷',
+        'Germany': 'Germany 🇩🇪',
+        'Italy': 'Italy 🇮🇹',
+        'UK': 'United Kingdom 🇬🇧',
+        'USA': 'United States 🇺🇸',
+        'Japan': 'Japan 🇯🇵',
+        'Brazil': 'Brazil 🇧🇷',
+        'Netherlands': 'Netherlands 🇳🇱',
+        'Australia': 'Australia 🇦🇺',
+        'Korea': 'Korea 🇰🇷',
+        'China': 'China 🇨🇳',
+        'Russia': 'Russia 🇷🇺',
+        'Portugal': 'Portugal 🇵🇹'
+    }
+    
+    # Continental regions
+    continental_regions = ['Europe', 'USA', 'Asia', 'Oceania', 'World']
+    
+    # ========================================
+    # SHOW ANALYSIS SUMMARY FIRST
+    # ========================================
+    print("\n" + "🟦" * 60)
+    print(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.BLUE}📊 ANALYSIS OF AVAILABLE FILES 📊{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
+    print("🟦" * 60)
+    
+    # Show available languages
+    if languages:
+        print(f"\n{Colors.BOLD}{Colors.GREEN}🌍 AVAILABLE LANGUAGES:{Colors.END}")
+        print(f"{Colors.GREEN}{'─' * 60}{Colors.END}")
+        lang_list = list(sorted(languages.items(), key=lambda x: x[1], reverse=True))
+        for lang_code, count in lang_list[:10]:  # Show top 10
+            lang_name = language_names.get(lang_code, lang_code)
+            print(f"  • {Colors.CYAN}{lang_code:3s}{Colors.END} - {lang_name:30s} ({count:,} files)")
+        
+        if len(lang_list) > 10:
+            print(f"  {Colors.YELLOW}... and {len(lang_list) - 10} more languages{Colors.END}")
+    
+    # Show available regions
+    if regions:
+        print(f"\n{Colors.BOLD}{Colors.BLUE}🗺️  AVAILABLE REGIONS:{Colors.END}")
+        print(f"{Colors.BLUE}{'─' * 60}{Colors.END}")
+        region_list = list(sorted(regions.items(), key=lambda x: x[1], reverse=True))
+        for region, count in region_list:
+            region_display = region_names.get(region, region)
+            print(f"  • {Colors.BLUE}{region:10s}{Colors.END} - {region_display:40s} ({count:,} files)")
+    
+    # Detect and show available countries
+    print(f"\n{Colors.BOLD}{Colors.YELLOW}🏛️  AVAILABLE SPECIFIC COUNTRIES:{Colors.END}")
+    print(f"{Colors.YELLOW}{'─' * 60}{Colors.END}")
+    
+    available_countries = {}
+    country_patterns = {
+        'Spain': r'\(Spain\)',
+        'France': r'\(France\)',
+        'Germany': r'\(Germany\)',
+        'Italy': r'\(Italy\)',
+        'UK': r'\(UK\)',
+        'USA': r'\(USA\)',
+        'Japan': r'\(Japan\)',
+        'Brazil': r'\(Brazil\)',
+        'Netherlands': r'\(Netherlands\)',
+        'Australia': r'\(Australia\)',
+        'Korea': r'\(Korea\)',
+        'China': r'\(China\)',
+        'Russia': r'\(Russia\)',
+        'Portugal': r'\(Portugal\)'
+    }
+    
+    for file_info in files:
+        filename = file_info['name']
+        for country, pattern in country_patterns.items():
+            if re.search(pattern, filename, re.IGNORECASE):
+                available_countries[country] = available_countries.get(country, 0) + 1
+    
+    if available_countries:
+        country_list = list(sorted(available_countries.items(), key=lambda x: x[1], reverse=True))
+        for country, count in country_list[:10]:  # Show top 10
+            country_display = country_names.get(country, country)
+            print(f"  • {country_display:30s} ({count:,} files)")
+        
+        if len(country_list) > 10:
+            print(f"  {Colors.YELLOW}... and {len(country_list) - 10} more countries{Colors.END}")
+    else:
+        print(f"  {Colors.YELLOW}No specific country tags detected{Colors.END}")
+    
+    print(f"\n{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
+    print("🟦" * 60)
+    
     # Clear separator and highlighted section
     print("\n" + "🟦" * 60)
     print(f"{Colors.BOLD}{Colors.YELLOW}{'=' * 60}{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.RED}🎯 ATTENTION! YOU MUST SELECT YOUR PREFERENCES HERE 🎯{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.YELLOW}{'=' * 60}{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.GREEN}📋 SELECT YOUR PRIORITIES:{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.RED}🎯 SELECT YOUR FILTER CRITERIA 🎯{Colors.END}")
     print(f"{Colors.BOLD}{Colors.YELLOW}{'=' * 60}{Colors.END}")
     print("🟦" * 60)
     
-    # Get language priority
     selected_language = None
-    if languages:
-        print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 1: SELECT YOUR PREFERRED LANGUAGE 🔻{Colors.END}")
-        print(f"{Colors.BOLD}1️⃣  PRIMARY PRIORITY - Select preferred language:{Colors.END}")
-        print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
-        lang_list = list(sorted(languages.items(), key=lambda x: x[1], reverse=True))
-        
-        for i, (lang_code, count) in enumerate(lang_list, 1):
-            lang_name = language_names.get(lang_code, lang_code)
-            print(f"  {Colors.BOLD}{i}.{Colors.END} {Colors.CYAN}{lang_code} - {lang_name}{Colors.END} ({count:,} files)")
-        
-        print(f"  {Colors.BOLD}0.{Colors.END} {Colors.YELLOW}No language preference (include all){Colors.END}")
-        print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
-        
-        while True:
-            try:
-                choice = input(f"\n{Colors.BOLD}{Colors.GREEN}👉 Select language priority (0-{len(lang_list)}): {Colors.END}").strip()
-                choice_num = int(choice)
-                
-                if choice_num == 0:
-                    selected_language = None
-                    print(f"✅ No language preference - all languages included")
-                    break
-                elif 1 <= choice_num <= len(lang_list):
-                    selected_language = lang_list[choice_num - 1][0]
-                    lang_name = language_names.get(selected_language, selected_language)
-                    print(f"✅ Selected language: {Colors.CYAN}{selected_language} - {lang_name}{Colors.END}")
-                    break
-                else:
-                    print(f"{Colors.RED}❌ Invalid choice. Please select 0-{len(lang_list)}{Colors.END}")
-            except ValueError:
-                print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
-    
-    # Get region priority
     selected_region = None
     selected_specific_country = None
+    selection_mode = None  # 'country' or 'region'
     
-    if regions:
-        print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 2: SELECT YOUR PREFERRED REGION 🔻{Colors.END}")
-        print(f"{Colors.BOLD}2️⃣  SECONDARY PRIORITY - Select preferred region/continent:{Colors.END}")
+    # STEP 1: Choose selection mode
+    print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 1: SELECT FILTER TYPE 🔻{Colors.END}")
+    print(f"{Colors.BOLD}Choose how you want to filter ROMs:{Colors.END}")
+    print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
+    print(f"  {Colors.BOLD}1.{Colors.END} {Colors.GREEN}🌍 By specific country{Colors.END} (e.g., Spain → (Spain))")
+    print(f"  {Colors.BOLD}2.{Colors.END} {Colors.BLUE}🗺️  By region + language code{Colors.END} (e.g., Europe + Es → (Europe) with Es)")
+    print(f"  {Colors.BOLD}0.{Colors.END} {Colors.YELLOW}No filter (include all){Colors.END}")
+    print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
+    
+    while True:
+        try:
+            choice = input(f"\n{Colors.BOLD}{Colors.GREEN}� Select filter type (0-2): {Colors.END}").strip()
+            choice_num = int(choice)
+            
+            if choice_num == 0:
+                print(f"✅ No filter - all files will be included")
+                selection_mode = None
+                break
+            elif choice_num == 1:
+                selection_mode = 'country'
+                print(f"✅ Filter by specific country selected")
+                break
+            elif choice_num == 2:
+                selection_mode = 'region'
+                print(f"✅ Filter by region + language code selected")
+                break
+            else:
+                print(f"{Colors.RED}❌ Invalid choice. Please select 0, 1, or 2{Colors.END}")
+        except ValueError:
+            print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
+    
+    # STEP 2: Based on selection mode, ask for specific criteria
+    if selection_mode == 'country':
+        # Detect available countries from the files
+        print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 2: SELECT SPECIFIC COUNTRY 🔻{Colors.END}")
+        print(f"{Colors.BOLD}Select the country you want:{Colors.END}")
         print(f"{Colors.GREEN}{'─' * 60}{Colors.END}")
+        
+        # Detect countries from files
+        available_countries = {}
+        country_patterns = {
+            'Spain': r'\(Spain\)',
+            'France': r'\(France\)',
+            'Germany': r'\(Germany\)',
+            'Italy': r'\(Italy\)',
+            'UK': r'\(UK\)',
+            'USA': r'\(USA\)',
+            'Japan': r'\(Japan\)',
+            'Brazil': r'\(Brazil\)',
+            'Netherlands': r'\(Netherlands\)',
+            'Australia': r'\(Australia\)',
+            'Korea': r'\(Korea\)',
+            'China': r'\(China\)',
+            'Russia': r'\(Russia\)',
+            'Portugal': r'\(Portugal\)'
+        }
+        
+        for file_info in files:
+            filename = file_info['name']
+            for country, pattern in country_patterns.items():
+                if re.search(pattern, filename, re.IGNORECASE):
+                    available_countries[country] = available_countries.get(country, 0) + 1
+        
+        if available_countries:
+            country_list = list(sorted(available_countries.items(), key=lambda x: x[1], reverse=True))
+            
+            for i, (country, count) in enumerate(country_list, 1):
+                country_display = country_names.get(country, country)
+                print(f"  {Colors.BOLD}{i}.{Colors.END} {Colors.GREEN}{country_display}{Colors.END} ({count:,} files)")
+            
+            print(f"{Colors.GREEN}{'─' * 60}{Colors.END}")
+            
+            while True:
+                try:
+                    choice = input(f"\n{Colors.BOLD}{Colors.GREEN}👉 Select country (1-{len(country_list)}): {Colors.END}").strip()
+                    choice_num = int(choice)
+                    
+                    if 1 <= choice_num <= len(country_list):
+                        selected_specific_country = country_list[choice_num - 1][0]
+                        country_display = country_names.get(selected_specific_country, selected_specific_country)
+                        print(f"✅ Selected country: {Colors.GREEN}{country_display}{Colors.END}")
+                        print(f"   → Will search for files with: {Colors.CYAN}({selected_specific_country}){Colors.END}")
+                        break
+                    else:
+                        print(f"{Colors.RED}❌ Invalid choice. Please select 1-{len(country_list)}{Colors.END}")
+                except ValueError:
+                    print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
+        else:
+            print(f"{Colors.RED}❌ No specific countries detected in files{Colors.END}")
+    
+    elif selection_mode == 'region':
+        # First, select the region
+        print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 2A: SELECT REGION 🔻{Colors.END}")
+        print(f"{Colors.BOLD}Select the continental region:{Colors.END}")
+        print(f"{Colors.BLUE}{'─' * 60}{Colors.END}")
+        
         region_list = list(sorted(regions.items(), key=lambda x: x[1], reverse=True))
         
         for i, (region, count) in enumerate(region_list, 1):
             region_name = region_names.get(region, region)
-            print(f"  {Colors.BOLD}{i}.{Colors.END} {Colors.GREEN}{region} - {region_name}{Colors.END} ({count:,} files)")
+            print(f"  {Colors.BOLD}{i}.{Colors.END} {Colors.BLUE}{region} - {region_name}{Colors.END} ({count:,} files)")
         
-        print(f"  {Colors.BOLD}0.{Colors.END} {Colors.YELLOW}No region preference (include all){Colors.END}")
-        print(f"{Colors.GREEN}{'─' * 60}{Colors.END}")
+        print(f"{Colors.BLUE}{'─' * 60}{Colors.END}")
         
         while True:
             try:
-                choice = input(f"\n{Colors.BOLD}{Colors.GREEN}👉 Select region priority (0-{len(region_list)}): {Colors.END}").strip()
+                choice = input(f"\n{Colors.BOLD}{Colors.GREEN}👉 Select region (1-{len(region_list)}): {Colors.END}").strip()
                 choice_num = int(choice)
                 
-                if choice_num == 0:
-                    selected_region = None
-                    print(f"✅ No region preference - all regions included")
-                    break
-                elif 1 <= choice_num <= len(region_list):
+                if 1 <= choice_num <= len(region_list):
                     selected_region = region_list[choice_num - 1][0]
                     region_name = region_names.get(selected_region, selected_region)
-                    print(f"✅ Selected region: {Colors.GREEN}{selected_region} - {region_name}{Colors.END}")
-                    
-                    # If Europe is selected, automatically choose the most relevant country
-                    if selected_region == 'Europe' and selected_language:
-                        # Detect available European countries for the selected language
-                        european_countries = detect_european_countries(files, selected_language)
-                        
-                        if european_countries:
-                            # Automatically select the best matching country for the language
-                            language_country_map = {
-                                'Es': 'Spain',
-                                'Fr': 'France', 
-                                'De': 'Germany',
-                                'It': 'Italy',
-                                'En': 'UK'
-                            }
-                            
-                            preferred_country = language_country_map.get(selected_language)
-                            
-                            # If the preferred country exists and has files, select it automatically
-                            if preferred_country and preferred_country in european_countries:
-                                selected_specific_country = preferred_country
-                                file_count = european_countries[preferred_country]
-                                print(f"🎯 Auto-selected specific country: {Colors.BLUE}{preferred_country}{Colors.END} ({file_count:,} files) - best match for {selected_language}")
-                            else:
-                                # Otherwise, select the country with most files
-                                selected_specific_country = max(european_countries.items(), key=lambda x: x[1])[0]
-                                file_count = european_countries[selected_specific_country]
-                                print(f"🎯 Auto-selected most available country: {Colors.BLUE}{selected_specific_country}{Colors.END} ({file_count:,} files)")
-                        else:
-                            selected_specific_country = None
-                    
+                    print(f"✅ Selected region: {Colors.BLUE}{selected_region} - {region_name}{Colors.END}")
                     break
                 else:
-                    print(f"{Colors.RED}❌ Invalid choice. Please select 0-{len(region_list)}{Colors.END}")
+                    print(f"{Colors.RED}❌ Invalid choice. Please select 1-{len(region_list)}{Colors.END}")
             except ValueError:
                 print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
+        
+        # Now, select the language code
+        print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 2B: SELECT LANGUAGE CODE 🔻{Colors.END}")
+        
+        # Use pre-analyzed language data from initial analysis
+        languages_by_region = analysis.get('languages_by_region', {})
+        language_full_names = analysis.get('language_full_names', {})
+        
+        # Get available languages for the selected region
+        available_languages = languages_by_region.get(selected_region, {})
+        
+        if not available_languages:
+            print(f"{Colors.YELLOW}⚠️  No language codes detected in {selected_region} files{Colors.END}")
+            print(f"{Colors.YELLOW}   Proceeding without language filter{Colors.END}")
+            selected_language = None
+        else:
+            print(f"{Colors.BOLD}Select the language code to filter within {selected_region}:{Colors.END}")
+            print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
+            
+            # Sort by file count (most common first)
+            lang_options = list(sorted(available_languages.items(), key=lambda x: x[1], reverse=True))
+            
+            for i, (code, count) in enumerate(lang_options, 1):
+                name = language_full_names.get(code, code)
+                print(f"  {Colors.BOLD}{i}.{Colors.END} {Colors.CYAN}{code} - {name}{Colors.END} ({count:,} files)")
+            
+            print(f"  {Colors.BOLD}0.{Colors.END} {Colors.YELLOW}No specific language (accept all){Colors.END}")
+            print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
+            
+            while True:
+                try:
+                    lang_choice = input(f"\n{Colors.BOLD}{Colors.GREEN}👉 Select language code (0-{len(lang_options)}): {Colors.END}").strip()
+                    lang_choice_num = int(lang_choice)
+                    
+                    if lang_choice_num == 0:
+                        selected_language = None
+                        print(f"✅ No language filter - accepting all languages in {selected_region}")
+                        print(f"   → Will search for files with: {Colors.CYAN}({selected_region}){Colors.END}")
+                        break
+                    elif 1 <= lang_choice_num <= len(lang_options):
+                        selected_language = lang_options[lang_choice_num - 1][0]
+                        lang_name = language_full_names.get(selected_language, selected_language)
+                        print(f"✅ Selected language code: {Colors.CYAN}{selected_language} - {lang_name}{Colors.END}")
+                        print(f"   → Will search for files with: {Colors.CYAN}({selected_region}){Colors.END} containing {Colors.CYAN}{selected_language}{Colors.END}")
+                        break
+                    else:
+                        print(f"{Colors.RED}❌ Invalid choice. Please select 0-{len(lang_options)}{Colors.END}")
+                except ValueError:
+                    print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
     
     return {
         'language': selected_language,
@@ -1063,309 +1290,203 @@ def ask_yes_no(question):
 
 def create_custom_config(user_priorities, analysis):
     """Creates a custom configuration based on user priorities"""
-    config_name = f"Custom ({user_priorities['language'] or 'All'}/{user_priorities['region'] or 'All'}"
+    # Determine the selection mode and create appropriate config
     if user_priorities.get('specific_country'):
-        config_name += f"/{user_priorities['specific_country']}"
-    config_name += ")"
+        # Country-specific mode
+        config_name = f"Country: {user_priorities['specific_country']}"
+        filter_mode = 'country'
+    elif user_priorities.get('region') and user_priorities.get('language'):
+        # Region + language mode
+        config_name = f"Region: {user_priorities['region']} (Language: {user_priorities['language']})"
+        filter_mode = 'region_language'
+    elif user_priorities.get('language'):
+        # Language only mode
+        config_name = f"Language: {user_priorities['language']}"
+        filter_mode = 'language'
+    elif user_priorities.get('region'):
+        # Region only mode
+        config_name = f"Region: {user_priorities['region']}"
+        filter_mode = 'region'
+    else:
+        # No filter mode
+        config_name = "All files (No filter)"
+        filter_mode = 'none'
     
     return {
         'name': config_name,
-        'primary_language': user_priorities['language'],
-        'primary_region': user_priorities['region'],
+        'filter_mode': filter_mode,
+        'language': user_priorities.get('language'),
+        'region': user_priorities.get('region'),
         'specific_country': user_priorities.get('specific_country'),
         'available_languages': list(analysis['languages'].keys()),
         'available_regions': list(analysis['regions'].keys())
     }
 
 def analyze_files_with_priorities(files, config, include_demos):
-    """Analyzes files using intelligent priority configuration with multi-disc support"""
+    """Analyzes files using direct filter mode (no priorities)"""
     valid = []
     invalid = []
     
-    # First, create a map to track which titles have versions in the primary language
-    primary_language_titles = set()
-    if config['primary_language']:
-        for file_info in files:
-            filename = file_info['name']
-            base_title = extract_base_title(filename)
-            
-            # Check if this file has the primary language
-            if config['primary_language'] == 'Es':
-                if ('Spain' in filename or 
-                    re.search(r'\(Es\)', filename) or 
-                    re.search(r'\([^)]*Es[^)]*\)', filename)):
-                    primary_language_titles.add(base_title)
-            else:
-                lang_patterns = [
-                    fr'\({config["primary_language"]}\)',
-                    fr'\([^)]*{config["primary_language"]}[^)]*\)',
-                ]
-                if any(re.search(pattern, filename, re.IGNORECASE) for pattern in lang_patterns):
-                    primary_language_titles.add(base_title)
+    filter_mode = config.get('filter_mode', 'none')
     
-    # Group files by base title to handle multi-disc games properly
-    files_by_title = defaultdict(list)
+    print(f"{Colors.CYAN}🎮 Processing {len(files)} files with filter mode: {filter_mode}...{Colors.END}")
+    
     for file_info in files:
         filename = file_info['name']
-        base_title = extract_base_title(filename)
-        files_by_title[base_title].append(file_info)
-    
-    print(f"{Colors.CYAN}🎮 Processing {len(files_by_title)} unique game titles...{Colors.END}")
-    
-    for base_title, title_files in files_by_title.items():
-        # Check if this title has a version in the primary language
-        has_primary_language = base_title in primary_language_titles
         
-        # Process all files for this title
-        title_valid = []
-        title_invalid = []
+        # Skip demos if not included
+        if not include_demos and ('(Demo)' in filename or '(demo)' in filename.lower()):
+            invalid.append((filename, "Demo file excluded", file_info['size']))
+            continue
         
-        for file_info in title_files:
-            filename = file_info['name']
+        # Apply filter based on mode
+        include_file = False
+        reason = ""
+        
+        if filter_mode == 'none':
+            # No filter - include all
+            include_file = True
             
-            # Skip demos if not included
-            if not include_demos and ('(Demo)' in filename or '(demo)' in filename.lower()):
-                title_invalid.append((filename, "Demo file excluded", file_info['size']))
-                continue
+        elif filter_mode == 'country':
+            # Filter by specific country only
+            country = config.get('specific_country')
+            country_pattern = fr'\({country}\)'
             
-            # Extract region
-            region = extract_region(filename)
-            
-            # Check if file matches user's preferences
-            matches_language = True
-            matches_region = True
-            
-            # INTELLIGENT LANGUAGE PRIORITIZATION with SPECIFIC COUNTRY support
-            if config['primary_language'] and config['primary_region'] == 'Europe':
-                # If specific country is selected, only include files from that country
-                if config.get('specific_country'):
-                    # Check if file matches the specific country
-                    country_patterns = {
-                        'Spain': [r'Spain', r'\(Es\)'],
-                        'France': [r'France', r'\(Fr\)'],
-                        'Germany': [r'Germany', r'\(De\)'],
-                        'Italy': [r'Italy', r'\(It\)'],
-                        'UK': [r'UK', r'United Kingdom'],
-                        'Netherlands': [r'Netherlands', r'\(Nl\)'],
-                        'Europe (Multi)': [r'\(Europe\)', r'\([A-Z][a-z](?:,[A-Z][a-z])+\).*Europe']
-                    }
-                    
-                    specific_patterns = country_patterns.get(config['specific_country'], [])
-                    matches_specific_country = any(re.search(pattern, filename, re.IGNORECASE) for pattern in specific_patterns)
-                    
-                    # Special case for Spain: also allow Europe files with Spanish language
-                    matches_europe_with_spanish = False
-                    if config['specific_country'] == 'Spain':
-                        matches_europe_with_spanish = (
-                            re.search(r'\(Europe\)', filename, re.IGNORECASE) and 
-                            re.search(r'\([^)]*Es[^)]*\)', filename, re.IGNORECASE)
-                        )
-                    
-                    if not matches_specific_country and not matches_europe_with_spanish:
-                        title_invalid.append((filename, f"Not from selected country: {config['specific_country']}", file_info['size']))
-                        continue
-                else:
-                    # If there's a primary language version and this isn't it, skip other versions
-                    if has_primary_language:
-                        is_primary_lang = False
-                        if config['primary_language'] == 'Es':
-                            is_primary_lang = ('Spain' in filename or 
-                                            re.search(r'\(Es\)', filename) or 
-                                            re.search(r'\([^)]*Es[^)]*\)', filename))
-                        else:
-                            lang_patterns = [
-                                fr'\({config["primary_language"]}\)',
-                                fr'\([^)]*{config["primary_language"]}[^)]*\)',
-                            ]
-                            is_primary_lang = any(re.search(pattern, filename, re.IGNORECASE) for pattern in lang_patterns)
-                        
-                        if not is_primary_lang:
-                            # This is not the primary language version but primary language exists, skip it
-                            title_invalid.append((filename, f"Primary language version available - skipping {region}", file_info['size']))
-                            continue
-            
-            # Check language preference
-            if config['primary_language']:
-                # Determine if this file has the preferred language
-                if config['primary_language'] == 'Es':
-                    # Check specifically for Spanish
-                    lang_patterns = [
-                        r'\(Es\)',
-                        r'\([^)]*Es[^)]*\)',
-                        r'Spain'
-                    ]
-                else:
-                    # For other languages
-                    lang_patterns = [
-                        fr'\({config["primary_language"]}\)',
-                        fr'\([^)]*{config["primary_language"]}[^)]*\)',
-                    ]
-                
-                matches_language = any(re.search(pattern, filename, re.IGNORECASE) for pattern in lang_patterns)
-            
-            # Check region preference with intelligent language filtering
-            if config['primary_region']:
-                # Create patterns for the selected continent
-                continent_patterns = {
-                    'Europe': [r'\(Europe\)', r'\(.*Europe.*\)', r'Spain', r'France', r'Germany', r'Italy', r'UK', r'Netherlands', r'Poland', r'Russia', r'Scandinavia'],
-                    'Americas': [r'\(USA\)', r'\(.*USA.*\)', r'Brazil', r'America'],
-                    'Asia': [r'\(Asia\)', r'\(.*Asia.*\)', r'Japan', r'China', r'Korea'],
-                    'Oceania': [r'\(Australia\)', r'\(.*Australia.*\)', r'Oceania'],
-                    'World': [r'\(World\)', r'\(.*World.*\)', r'Global']
-                }
-                
-                # Check if file matches the selected continent
-                patterns = continent_patterns.get(config['primary_region'], [])
-                matches_region = any(re.search(pattern, filename, re.IGNORECASE) for pattern in patterns)            # INTELLIGENT FILTERING: For continental regions with language preference
-            continental_regions = ['Europe', 'Asia', 'Americas', 'Oceania']
-            if (config['primary_region'] in continental_regions and 
-                config['primary_language'] and 
-                matches_region):
-                
-                # For continental releases, verify they include our preferred language
-                # Look for pattern like (En,Es,Fr,De) or (Es,En)
-                multi_lang_pattern = r'\([A-Z][a-z](?:,[A-Z][a-z])+\)'
-                multi_lang_match = re.search(multi_lang_pattern, filename)
-                
-                if multi_lang_match:
-                    # Found multi-language indicator, check if our language is included
-                    languages_in_file = multi_lang_match.group(0)
-                    if config['primary_language'] not in languages_in_file:
-                        matches_region = False
-                        invalid.append((filename, f"{config['primary_region']} region missing {config['primary_language']} language support", file_info['size']))
-                        continue
-            
-            # Determine priority score with INTELLIGENT PRIORITIZATION
-            priority_score = 1000  # Default low priority
-            
-            # HIGHEST PRIORITY: Exact language match (e.g., Spain for Spanish)
-            if config['primary_language'] == 'Es' and 'Spain' in filename:
-                priority_score = 1  # Absolute highest priority for Spain
-            elif config['primary_language'] == 'Es' and re.search(r'\(Europe\)', filename, re.IGNORECASE) and matches_language:
-                priority_score = 2  # Europe files with Spanish language
-            elif matches_language and matches_region:
-                if config['primary_language'] == 'Es':
-                    priority_score = 2  # Other Spanish files in Europe
-                else:
-                    priority_score = 1  # Perfect match for non-Spanish
-            elif matches_language:
-                priority_score = 3  # Language match only
-            elif matches_region:
-                # Only include regional matches if no language preference or no language version exists
-                if not config['primary_language']:
-                    priority_score = 4  # Regional match without language preference
-                else:
-                    # Skip regional-only matches when language preference exists
-                    title_invalid.append((filename, f"Region match but missing preferred language {config['primary_language']}", file_info['size']))
-                    continue
-            elif not config['primary_language'] and not config['primary_region']:
-                priority_score = 5  # Include all if no preferences
+            if re.search(country_pattern, filename, re.IGNORECASE):
+                include_file = True
             else:
-                # Does not match any criteria
-                title_invalid.append((filename, "Does not match preferences", file_info['size']))
-                continue
+                reason = f"Not from selected country: {country}"
+                
+        elif filter_mode == 'region_language':
+            # Filter by region + language code
+            region = config.get('region')
+            language = config.get('language')
             
-            # Add to title's valid files with priority
-            file_with_priority = {
-                **file_info,
-                'region': region or 'Unknown',
-                'priority': priority_score,
-                'matches_language': matches_language,
-                'matches_region': matches_region
+            # Define region to countries mapping
+            region_countries = {
+                'Europe': [r'\(Europe\)', r'\(Spain\)', r'\(France\)', r'\(Germany\)', r'\(Italy\)', r'\(UK\)', r'\(Netherlands\)', r'\(Poland\)', r'\(Russia\)', r'\(Scandinavia\)'],
+                'USA': [r'\(USA\)', r'\(U\)', r'\(Brazil\)', r'\(America\)'],
+                'Asia': [r'\(Japan\)', r'\(China\)', r'\(Korea\)', r'\(Asia\)'],
+                'Oceania': [r'\(Australia\)', r'\(Oceania\)'],
+                'World': [r'\(World\)']
             }
             
-            if priority_score <= 100:  # Only include reasonably prioritized files
-                title_valid.append(file_with_priority)
+            # Get patterns for the selected region
+            region_patterns = region_countries.get(region, [fr'\({region}\)'])
+            
+            # Check if file matches any pattern for this region
+            has_region = any(re.search(pattern, filename, re.IGNORECASE) for pattern in region_patterns)
+            
+            if has_region:
+                if language:
+                    # Check if file contains the language code
+                    # Pattern for language codes like (Es), (En,Fr,De), etc.
+                    lang_in_file = re.search(fr'\b{language}\b', filename, re.IGNORECASE)
+                    
+                    if lang_in_file:
+                        include_file = True
+                    else:
+                        reason = f"Region {region} found but missing language {language}"
+                else:
+                    # No language filter, just region
+                    include_file = True
             else:
-                title_invalid.append((filename, "Does not match preferences", file_info['size']))
-        
-        # Add all files for this title to the final lists
-        # If we have valid files for this title, add them all (including all discs)
-        if title_valid:
-            # Sort by disc number to maintain order
-            title_valid.sort(key=lambda x: extract_disc_info(x['name']) or 0)
-            valid.extend(title_valid)
+                reason = f"Not from selected region: {region}"
+                
+        elif filter_mode == 'language':
+            # Filter by language only
+            language = config.get('language')
+            lang_in_file = re.search(fr'\b{language}\b', filename, re.IGNORECASE)
             
-            # Show what we're keeping for multi-disc games
-            disc_info = []
-            for file_info in title_valid:
-                disc = extract_disc_info(file_info['name'])
-                if disc:
-                    disc_info.append(f"Disc {disc}")
+            if lang_in_file:
+                include_file = True
+            else:
+                reason = f"Does not contain language: {language}"
+                
+        elif filter_mode == 'region':
+            # Filter by region only
+            region = config.get('region')
             
-            if len(disc_info) > 1:
-                print(f"  🎮 {base_title}: Keeping all {len(disc_info)} discs ({', '.join(disc_info)})")
+            # Define region to countries mapping
+            region_countries = {
+                'Europe': [r'\(Europe\)', r'\(Spain\)', r'\(France\)', r'\(Germany\)', r'\(Italy\)', r'\(UK\)', r'\(Netherlands\)', r'\(Poland\)', r'\(Russia\)', r'\(Scandinavia\)'],
+                'USA': [r'\(USA\)', r'\(U\)', r'\(Brazil\)', r'\(America\)'],
+                'Asia': [r'\(Japan\)', r'\(China\)', r'\(Korea\)', r'\(Asia\)'],
+                'Oceania': [r'\(Australia\)', r'\(Oceania\)'],
+                'World': [r'\(World\)']
+            }
+            
+            # Get patterns for the selected region
+            region_patterns = region_countries.get(region, [fr'\({region}\)'])
+            
+            # Check if file matches any pattern for this region
+            if any(re.search(pattern, filename, re.IGNORECASE) for pattern in region_patterns):
+                include_file = True
+            else:
+                reason = f"Not from selected region: {region}"
         
-        # Add invalid files to the final invalid list
-        invalid.extend(title_invalid)
+        # Add to appropriate list
+        if include_file:
+            file_with_info = {
+                **file_info,
+                'region': extract_region(filename) or 'Unknown'
+            }
+            valid.append(file_with_info)
+        else:
+            invalid.append((filename, reason, file_info['size']))
+    
+    print(f"{Colors.GREEN}✓ {len(valid)} files match the filter{Colors.END}")
+    print(f"{Colors.YELLOW}⚠ {len(invalid)} files excluded{Colors.END}")
     
     return valid, invalid
 
 def show_preview_with_priorities(url, config, valid, invalid, include_demos):
-    """Shows preview with priority-based organization"""
+    """Shows preview of selected files (no priorities, just direct filter results)"""
     print(f"\n{Colors.BOLD}{'='*100}{Colors.END}")
     print(f"{Colors.BOLD}🔍 DOWNLOAD PREVIEW{Colors.END}")
     print(f"{'='*100}")
     print(f"📥 URL: {url}")
-    print(f"🎯 Configuration: {config['name']}")
+    print(f"🎯 Filter: {config['name']}")
     print(f"🎮 Include Demos: {'Yes' if include_demos else 'No'}")
     
-    # Group files by priority
-    priority_groups = defaultdict(list)
-    for file_info in valid:
-        priority_groups[file_info['priority']].append(file_info)
+    if not valid:
+        print(f"\n{Colors.YELLOW}⚠️  No files match the selected criteria{Colors.END}")
+        return
     
-    total_size = 0
-    total_files = 0
+    total_size = sum(f['size'] for f in valid)
+    total_files = len(valid)
     
-    print(f"\n{Colors.BOLD}🎯 ARCHIVOS SELECCIONADOS POR PRIORIDAD{Colors.END}")
-    print("="*90)
+    print(f"\n{Colors.BOLD}{Colors.GREEN}📁 SELECTED FILES{Colors.END}")
+    print(f"{Colors.CYAN}{'='*90}{Colors.END}")
+    print(f"{Colors.GREEN}✓ {total_files:,} files selected ({convert_bytes_to_readable(total_size)}){Colors.END}")
+    print(f"{Colors.CYAN}{'-' * 90}{Colors.END}")
     
-    priority_names = {
-        0: "EXCLUSIVE GAMES (Region Exclusives)",
-        1: "EXACT COUNTRY MATCH (Spain for Spanish)",
-        2: "LANGUAGE MATCH (Spanish in Europe)", 
-        3: "LANGUAGE ONLY",
-        4: "REGION ONLY (Europe without Spanish)",
-        5: "ALL FILES (No preferences)"
-    }
+    # Show first 10 files as examples
+    for file_info in valid[:10]:
+        # Use full filename instead of base title to show disc info
+        full_filename = file_info['name']
+        # Remove file extension for cleaner display
+        if full_filename.endswith('.zip'):
+            title = full_filename[:-4]
+        else:
+            title = full_filename
+        size_str = convert_bytes_to_readable(file_info['size'])
+        print(f"  {title[:60]:<62} {size_str:>12}")
     
-    for priority in sorted(priority_groups.keys()):
-        files = priority_groups[priority]
-        if not files:
-            continue
-            
-        group_size = sum(f['size'] for f in files)
-        total_size += group_size
-        total_files += len(files)
-        
-        print(f"\n📂 PRIORITY {priority} - {priority_names.get(priority, 'OTHER')}: {len(files)} files ({convert_bytes_to_readable(group_size)})")
-        print("-" * 80)
-        
-        # Show first 10 files as examples
-        for file_info in files[:10]:
-            # Use full filename instead of base title to show disc info
-            full_filename = file_info['name']
-            # Remove file extension for cleaner display
-            if full_filename.endswith('.zip'):
-                title = full_filename[:-4]
-            else:
-                title = full_filename
-            size_str = convert_bytes_to_readable(file_info['size'])
-            print(f"  {title[:60]:<62} {size_str:>12}")
-        
-        if len(files) > 10:
-            remaining_size = sum(f['size'] for f in files[10:])
-            print(f"  ... and {len(files) - 10} more files ({convert_bytes_to_readable(remaining_size)})")
+    if len(valid) > 10:
+        remaining_size = sum(f['size'] for f in valid[10:])
+        print(f"  {Colors.CYAN}... and {len(valid) - 10:,} more files ({convert_bytes_to_readable(remaining_size)}){Colors.END}")
     
-    print("\n" + "="*90)
-    print(f"📊 TOTAL SUMMARY:")
-    print(f"   📁 Total files: {total_files:,}")
+    print(f"{Colors.CYAN}{'='*90}{Colors.END}")
+    print(f"{Colors.BOLD}📊 SUMMARY:{Colors.END}")
+    print(f"   📁 Total files to download: {total_files:,}")
     print(f"   💾 Total size: {convert_bytes_to_readable(total_size)}")
+    
     if invalid:
         invalid_size = sum(size for _, _, size in invalid)
-        print(f"   ❌ Ignored files: {len(invalid):,} ({convert_bytes_to_readable(invalid_size)})")
-    print("="*90)
+        print(f"   ❌ Excluded files: {len(invalid):,} ({convert_bytes_to_readable(invalid_size)})")
+    
+    print(f"{Colors.CYAN}{'='*90}{Colors.END}")
 
 def download_selected_files(valid_files, output_dir='downloads', max_files=None):
     """Downloads the selected files with progress tracking"""
