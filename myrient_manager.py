@@ -1510,13 +1510,12 @@ def download_selected_files(valid_files, output_dir='downloads', max_files=None)
         filename = file_info['name']
         url = file_info['url']
         file_size = file_info['size']
-        priority = file_info['priority']
         
         # Clean filename for filesystem
         safe_filename = filename.replace('/', '_').replace('\\', '_')
         file_path = output_path / safe_filename
         
-        print(f"\n{Colors.CYAN}[{i:4d}/{total_files}]{Colors.END} {Colors.YELLOW}Priority {priority}{Colors.END} - {filename[:60]}...")
+        print(f"\n{Colors.CYAN}[{i:4d}/{total_files}]{Colors.END} {filename[:70]}...")
         
         # Check if file already exists
         if file_path.exists():
