@@ -49,6 +49,7 @@ def is_development_mode():
 
 def print_banner():
     """Prints the welcome banner"""
+    os.system('clear' if os.name != 'nt' else 'cls')
     banner = f"""
 {Colors.CYAN}{'='*80}
 {Colors.BOLD}🎮 MYRIENT ROM MANAGER - Interactive Mode 🎮{Colors.END}
@@ -138,8 +139,14 @@ def convert_bytes_to_readable(bytes_size):
         bytes_size /= 1024.0
     return f"{bytes_size:.1f} PiB"
 
-def extract_downloaded_files(output_dir):
-    """Extract all ZIP files in the output directory"""
+def extract_downloaded_files(output_dir, delete_zips_after=False):
+    """Extract all ZIP files in the output directory
+    
+    Args:
+        output_dir: Directory containing ZIP files
+        delete_zips_after: If True, deletes each ZIP immediately after successful extraction
+    """
+    os.system('clear' if os.name != 'nt' else 'cls')
     print(f"\n{Colors.CYAN}📦 STARTING FILE EXTRACTION{Colors.END}")
     print("=" * 60)
     
@@ -147,14 +154,17 @@ def extract_downloaded_files(output_dir):
     
     if not zip_files:
         print(f"{Colors.YELLOW}⚠️  No ZIP files found to extract{Colors.END}")
-        return 0, 0
+        return 0, 0, 0
     
     extracted_count = 0
     error_count = 0
+    deleted_count = 0
+    total_freed_space = 0
     
     for zip_file in zip_files:
         try:
             print(f"\n📦 Extracting: {Colors.CYAN}{zip_file.name}{Colors.END}")
+            zip_size = zip_file.stat().st_size
             
             # Create extraction directory (same name as zip file without extension)
             extract_dir = zip_file.parent / zip_file.stem
@@ -175,6 +185,16 @@ def extract_downloaded_files(output_dir):
                 print(f"\n  ✅ Successfully extracted to: {Colors.GREEN}{extract_dir.name}/{Colors.END}")
                 extracted_count += 1
                 
+                # Delete ZIP immediately after successful extraction if requested
+                if delete_zips_after:
+                    try:
+                        zip_file.unlink()
+                        deleted_count += 1
+                        total_freed_space += zip_size
+                        print(f"  🗑️  Deleted ZIP file (freed {convert_bytes_to_readable(zip_size)})")
+                    except Exception as e:
+                        print(f"  ⚠️  {Colors.YELLOW}Warning: Could not delete ZIP: {str(e)}{Colors.END}")
+                
         except zipfile.BadZipFile:
             print(f"  ❌ {Colors.RED}Error: Invalid ZIP file{Colors.END}")
             error_count += 1
@@ -187,9 +207,12 @@ def extract_downloaded_files(output_dir):
     print("=" * 40)
     print(f"✅ Extracted: {Colors.GREEN}{extracted_count}{Colors.END}")
     print(f"❌ Errors: {Colors.RED}{error_count}{Colors.END}")
+    if delete_zips_after and deleted_count > 0:
+        print(f"🗑️  Deleted ZIPs: {Colors.YELLOW}{deleted_count}{Colors.END}")
+        print(f"💾 Space freed: {Colors.GREEN}{convert_bytes_to_readable(total_freed_space)}{Colors.END}")
     print(f"📁 Location: {Colors.CYAN}{output_dir}{Colors.END}")
     
-    return extracted_count, error_count
+    return extracted_count, error_count, deleted_count
 
 def fetch_directory_listing(url, include_demos=False):
     """Fetches the directory listing from Myrient URL"""
@@ -732,6 +755,7 @@ def show_exclusive_games_options(exclusive_games):
         print(f"{Colors.YELLOW}🤷 No exclusive games detected{Colors.END}")
         return []
     
+    os.system('clear' if os.name != 'nt' else 'cls')
     print(f"\n{Colors.BOLD}🎮 EXCLUSIVE GAMES DETECTED:{Colors.END}")
     print("=" * 60)
     
@@ -848,6 +872,7 @@ def get_user_priority_selection(analysis, files):
     # ========================================
     # SHOW ANALYSIS SUMMARY FIRST
     # ========================================
+    os.system('clear' if os.name != 'nt' else 'cls')
     print("\n" + "🟦" * 60)
     print(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.END}")
     print(f"{Colors.BOLD}{Colors.BLUE}📊 ANALYSIS OF AVAILABLE FILES 📊{Colors.END}")
@@ -918,6 +943,7 @@ def get_user_priority_selection(analysis, files):
     print("🟦" * 60)
     
     # Clear separator and highlighted section
+    os.system('clear' if os.name != 'nt' else 'cls')
     print("\n" + "🟦" * 60)
     print(f"{Colors.BOLD}{Colors.YELLOW}{'=' * 60}{Colors.END}")
     print(f"{Colors.BOLD}{Colors.RED}🎯 SELECT YOUR FILTER CRITERIA 🎯{Colors.END}")
@@ -1344,6 +1370,11 @@ def analyze_files_with_priorities(files, config, include_demos):
             invalid.append((filename, "Demo file excluded", file_info['size']))
             continue
         
+        # Skip revision and beta versions
+        if re.search(r'\(Rev\s*\d*\)|\(Beta\)', filename, re.IGNORECASE):
+            invalid.append((filename, "Revision or Beta version excluded", file_info['size']))
+            continue
+        
         # Apply filter based on mode
         include_file = False
         reason = ""
@@ -1439,6 +1470,7 @@ def analyze_files_with_priorities(files, config, include_demos):
 
 def show_preview_with_priorities(url, config, valid, invalid, include_demos):
     """Shows preview of selected files (no priorities, just direct filter results)"""
+    os.system('clear' if os.name != 'nt' else 'cls')
     print(f"\n{Colors.BOLD}{'='*100}{Colors.END}")
     print(f"{Colors.BOLD}🔍 DOWNLOAD PREVIEW{Colors.END}")
     print(f"{'='*100}")
@@ -1493,6 +1525,7 @@ def download_selected_files(valid_files, output_dir='downloads', max_files=None)
     # Limit files if max_files is specified
     files_to_download = valid_files[:max_files] if max_files else valid_files
     
+    os.system('clear' if os.name != 'nt' else 'cls')
     print(f"\n{Colors.GREEN}🚀 STARTING DOWNLOAD TO: {output_path.absolute()}{Colors.END}")
     if max_files and len(valid_files) > max_files:
         print(f"{Colors.YELLOW}📊 Downloading first {max_files} files out of {len(valid_files)} total{Colors.END}")
@@ -1795,8 +1828,8 @@ def main():
             # Ask for test mode (only in development mode)
             max_files = None
             if is_development_mode():
-                test_mode = ask_yes_no("Download only first 20 files for testing?")
-                max_files = 20 if test_mode else None
+                test_mode = ask_yes_no("Download only first 10 files for testing?")
+                max_files = 10 if test_mode else None
             else:
                 test_mode = False
             
@@ -1808,7 +1841,7 @@ def main():
             print(f"\n{Colors.GREEN}📁 Output directory: {output_dir}{Colors.END}")
             
             if test_mode:
-                print(f"{Colors.YELLOW}🧪 TEST MODE: Only downloading first 20 files{Colors.END}")
+                print(f"{Colors.YELLOW}🧪 TEST MODE: Only downloading first 10 files{Colors.END}")
             
             # Start actual download
             downloaded, skipped, errors = download_selected_files(valid, output_dir, max_files)
@@ -1818,7 +1851,11 @@ def main():
                 
                 # Ask if user wants to extract the downloaded files
                 if ask_yes_no("\n📦 Do you want to extract the downloaded ZIP files?"):
-                    extracted, extract_errors = extract_downloaded_files(output_dir)
+                    # Ask if user wants to delete ZIPs after extraction to save space
+                    delete_zips = ask_yes_no("🗑️  Delete ZIP files immediately after extraction to save disk space?")
+                    
+                    extracted, extract_errors, deleted = extract_downloaded_files(output_dir, delete_zips_after=delete_zips)
+                    
                     if extracted > 0:
                         print(f"\n{Colors.GREEN}🎉 Extraction completed! {extracted} files extracted successfully!{Colors.END}")
                         if extract_errors > 0:
@@ -1835,7 +1872,11 @@ def main():
                 if zip_files:
                     print(f"\n{Colors.CYAN}🔍 Found {len(zip_files)} existing ZIP files in {output_dir}{Colors.END}")
                     if ask_yes_no("\n📦 Do you want to extract the existing ZIP files?"):
-                        extracted, extract_errors = extract_downloaded_files(output_dir)
+                        # Ask if user wants to delete ZIPs after extraction to save space
+                        delete_zips = ask_yes_no("🗑️  Delete ZIP files immediately after extraction to save disk space?")
+                        
+                        extracted, extract_errors, deleted = extract_downloaded_files(output_dir, delete_zips_after=delete_zips)
+                        
                         if extracted > 0:
                             print(f"\n{Colors.GREEN}🎉 Extraction completed! {extracted} files extracted successfully!{Colors.END}")
                             if extract_errors > 0:
