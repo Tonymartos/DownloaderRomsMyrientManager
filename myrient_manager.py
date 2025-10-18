@@ -1364,23 +1364,15 @@ def analyze_files_with_priorities(files, config, include_demos):
                 
         elif filter_mode == 'region_language':
             # Filter by region + language code
+            # When selecting region + language, ONLY match region tags like (Europe), NOT specific countries
             region = config.get('region')
             language = config.get('language')
             
-            # Define region to countries mapping
-            region_countries = {
-                'Europe': [r'\(Europe\)', r'\(Spain\)', r'\(France\)', r'\(Germany\)', r'\(Italy\)', r'\(UK\)', r'\(Netherlands\)', r'\(Poland\)', r'\(Russia\)', r'\(Scandinavia\)'],
-                'USA': [r'\(USA\)', r'\(U\)', r'\(Brazil\)', r'\(America\)'],
-                'Asia': [r'\(Japan\)', r'\(China\)', r'\(Korea\)', r'\(Asia\)'],
-                'Oceania': [r'\(Australia\)', r'\(Oceania\)'],
-                'World': [r'\(World\)']
-            }
+            # For region+language mode, only use the region tag itself
+            region_pattern = fr'\({region}\)'
             
-            # Get patterns for the selected region
-            region_patterns = region_countries.get(region, [fr'\({region}\)'])
-            
-            # Check if file matches any pattern for this region
-            has_region = any(re.search(pattern, filename, re.IGNORECASE) for pattern in region_patterns)
+            # Check if file has the region tag
+            has_region = re.search(region_pattern, filename, re.IGNORECASE)
             
             if has_region:
                 if language:
@@ -1860,113 +1852,6 @@ def main():
                 continue
             else:
                 break
-
-def main_old():
-    """Main interactive function"""
-    print_banner()
-    
-    while True:
-        print_menu()
-        
-        choice = input(f"{Colors.BOLD}Select an option (0-6): {Colors.END}").strip()
-        
-        if choice == '0':
-            print(f"\n{Colors.GREEN}👋 Thanks for using Myrient ROM Manager! Goodbye!{Colors.END}\n")
-            sys.exit(0)
-        
-        config = get_language_config(choice)
-        if not config:
-            print(f"{Colors.RED}❌ Invalid option. Please try again.{Colors.END}\n")
-            continue
-        
-        print(f"\n{Colors.GREEN}✅ Selected language: {config['name']}{Colors.END}")
-        print(f"{Colors.BLUE}📋 Priority regions: {' > '.join([f'{k}({v})' for k, v in sorted(config['priority'].items(), key=lambda x: x[1])])}{Colors.END}")
-        
-        # Ask for URL
-        print(f"\n{Colors.BOLD}📥 Enter Myrient URL:{Colors.END}")
-        print(f"{Colors.YELLOW}Example: https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/{Colors.END}")
-        url = input(f"{Colors.BOLD}URL: {Colors.END}").strip()
-        
-        if not url:
-            print(f"{Colors.RED}❌ URL cannot be empty{Colors.END}\n")
-            continue
-        
-        # Validate URL
-        if not validate_url(url):
-            print(f"{Colors.RED}❌ Invalid URL. Must start with http:// or https://{Colors.END}\n")
-            continue
-        
-        # Ask for demos
-        demos_input = input(f"\n{Colors.BOLD}Include Demo files? (yes/no) [default: no]: {Colors.END}").strip().lower()
-        include_demos = demos_input in ['yes', 'y', 'si', 's']
-        
-        # Fetch directory listing
-        files = fetch_directory_listing(url, include_demos)
-        if files is None:
-            print(f"{Colors.RED}❌ Could not fetch directory listing. Please check the URL.{Colors.END}\n")
-            continue
-        
-        if not files:
-            print(f"{Colors.YELLOW}⚠️  No .zip files found in the directory{Colors.END}\n")
-            continue
-        
-        print(f"{Colors.GREEN}✓ Found {len(files)} .zip files{Colors.END}")
-        
-        # Analyze files
-        valid, invalid = analyze_files(files, config, include_demos)
-        
-        if not valid:
-            print(f"\n{Colors.YELLOW}⚠️  No files match the selected language criteria{Colors.END}")
-            print(f"{Colors.YELLOW}Total ignored: {len(invalid)}{Colors.END}\n")
-            
-            retry = input(f"{Colors.BOLD}Try with different settings? (yes/no): {Colors.END}").strip().lower()
-            if retry in ['yes', 'y', 'si', 's']:
-                continue  # Go back to main menu
-            else:
-                print(f"\n{Colors.YELLOW}� Tip: Try a different language configuration or a different platform URL{Colors.END}")
-                continue  # Go back to main menu instead of exiting
-        
-        # Group by title and select best files
-        titles_dict = group_by_title(valid)
-        selected, discarded = select_best_files(titles_dict, config)
-        
-        # Print preview
-        print(f"\n{Colors.CYAN}{'='*100}{Colors.END}")
-        print(f"{Colors.BOLD}{Colors.BLUE}🔍 DOWNLOAD PREVIEW{Colors.END}")
-        print(f"{Colors.CYAN}{'='*100}{Colors.END}")
-        print(f"{Colors.BLUE}📥 URL: {url}{Colors.END}")
-        print(f"{Colors.BLUE}🌍 Language: {config['name']}{Colors.END}")
-        print(f"{Colors.BLUE}🎮 Include Demos: {'Yes' if include_demos else 'No'}{Colors.END}")
-        
-        print_preview_table(selected, discarded, invalid, config)
-        
-        # Ask for confirmation
-        if not ask_confirmation():
-            print(f"\n{Colors.YELLOW}❌ Download cancelled{Colors.END}\n")
-            
-            retry = input(f"{Colors.BOLD}Try with different settings? (yes/no): {Colors.END}").strip().lower()
-            if retry in ['yes', 'y', 'si', 's']:
-                continue  # Go back to main menu
-            else:
-                print(f"\n{Colors.YELLOW}� Returning to main menu...{Colors.END}")
-                continue  # Go back to main menu instead of exiting
-        
-        # Ask for output directory
-        default_output = 'myrient_roms'
-        output_input = input(f"\n{Colors.BOLD}Output directory [default: {default_output}]: {Colors.END}").strip()
-        output_dir = output_input if output_input else default_output
-        
-        print(f"\n{Colors.GREEN}📁 Output directory: {output_dir}{Colors.END}")
-        
-        # Note: Here we would need to modify download_and_filter to accept custom config
-        # For now, show message
-        print(f"\n{Colors.YELLOW}⚠️  Note: Download functionality needs to be updated to support custom language priorities{Colors.END}")
-        print(f"{Colors.YELLOW}    For now, use the original downloadroms.py with Spain priority{Colors.END}\n")
-        
-        another = input(f"{Colors.BOLD}Analyze another URL? (yes/no): {Colors.END}").strip().lower()
-        if another not in ['yes', 'y', 'si', 's']:
-            print(f"\n{Colors.GREEN}👋 Thanks for using Myrient ROM Manager! Goodbye!{Colors.END}\n")
-            sys.exit(0)
 
 def validate_url(url):
     """Validates that the URL is correct"""

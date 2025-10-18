@@ -197,4 +197,4 @@ Thumbs.db
 *.temp
 *.swp
 *.swo
-*~
+*~RELEASE_NOTES_*.md
