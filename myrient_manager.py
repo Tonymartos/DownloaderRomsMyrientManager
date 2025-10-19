@@ -672,6 +672,9 @@ def detect_exclusive_games(files, priority_games=None):
 
 def extract_key_words(title):
     """Extracts key identifying words from a game title for duplicate detection"""
+    # Remove file extension if present
+    title = re.sub(r'\.(zip|rar|7z)$', '', title, flags=re.IGNORECASE)
+    
     # Remove disc information temporarily to focus on game title
     title_without_disc = re.sub(r'\(Disc \d+\)', '', title, flags=re.IGNORECASE)
     title_without_disc = re.sub(r'Disc \d+', '', title_without_disc, flags=re.IGNORECASE)
@@ -679,8 +682,17 @@ def extract_key_words(title):
     # Remove common parenthetical information (languages, regions, etc.)
     title_clean = re.sub(r'\([^)]*\)', '', title_without_disc)
     
-    # Remove common separators and normalize
-    title_clean = re.sub(r'[-_.:,]', ' ', title_clean)
+    # CONSERVATIVE APPROACH: Keep ALL years as they indicate different game versions
+    # Examples where years indicate DIFFERENT games:
+    # - "All Star Tennis" vs "All Star Tennis 2000" → Different games
+    # - "FIFA 99" vs "FIFA 2000" → Different annual releases
+    # - "Need for Speed '99" vs "Need for Speed 2000" → Different versions
+    # 
+    # Years (2-4 digits like '99, 2000, 2001) are kept as keywords and will be
+    # verified by CHECK 1 in the matching algorithm to detect different versions
+    
+    # Remove common separators and normalize (including apostrophes for years like '99)
+    title_clean = re.sub(r"[-_.:,'']", ' ', title_clean)
     title_clean = re.sub(r'\s+', ' ', title_clean).strip()
     
     # Split into words
@@ -695,13 +707,15 @@ def extract_key_words(title):
         'il', 'la', 'lo', 'gli', 'le', 'di', 'e', 'o', 'con', 'per', 'da'
     }
     
-    # Keep words that are 3+ characters and not common words
+    # Keep words that are 2+ characters and not common words
+    # Exception: single-digit numbers are kept (version numbers like 2, 3, 4)
     key_words = []
     for word in words:
         word_clean = word.lower().strip()
-        if len(word_clean) >= 2 and word_clean not in common_words:
-            # Keep numbers and meaningful words
-            if word_clean.isdigit() or word_clean.isalpha():
+        # Keep if: (2+ chars OR single digit) AND not a common word
+        if word_clean not in common_words:
+            if (len(word_clean) >= 2 and (word_clean.isdigit() or word_clean.isalpha())) or \
+               (len(word_clean) == 1 and word_clean.isdigit()):
                 key_words.append(word_clean)
     
     return key_words
@@ -953,7 +967,7 @@ def get_user_priority_selection(analysis, files):
     selected_language = None
     selected_region = None
     selected_specific_country = None
-    selection_mode = None  # 'country' or 'region'
+    selection_mode = None  # 'country', 'region_language', or 'region_only'
     
     # STEP 1: Choose selection mode
     print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 1: SELECT FILTER TYPE 🔻{Colors.END}")
@@ -961,12 +975,13 @@ def get_user_priority_selection(analysis, files):
     print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
     print(f"  {Colors.BOLD}1.{Colors.END} {Colors.GREEN}🌍 By specific country{Colors.END} (e.g., Spain → (Spain))")
     print(f"  {Colors.BOLD}2.{Colors.END} {Colors.BLUE}🗺️  By region + language code{Colors.END} (e.g., Europe + Es → (Europe) with Es)")
+    print(f"  {Colors.BOLD}3.{Colors.END} {Colors.HEADER}🌎 By region only{Colors.END} (e.g., Europe → (Europe) without languages)")
     print(f"  {Colors.BOLD}0.{Colors.END} {Colors.YELLOW}No filter (include all){Colors.END}")
     print(f"{Colors.CYAN}{'─' * 60}{Colors.END}")
     
     while True:
         try:
-            choice = input(f"\n{Colors.BOLD}{Colors.GREEN}� Select filter type (0-2): {Colors.END}").strip()
+            choice = input(f"\n{Colors.BOLD}{Colors.GREEN}� Select filter type (0-3): {Colors.END}").strip()
             choice_num = int(choice)
             
             if choice_num == 0:
@@ -978,11 +993,15 @@ def get_user_priority_selection(analysis, files):
                 print(f"✅ Filter by specific country selected")
                 break
             elif choice_num == 2:
-                selection_mode = 'region'
+                selection_mode = 'region_language'
                 print(f"✅ Filter by region + language code selected")
                 break
+            elif choice_num == 3:
+                selection_mode = 'region_only'
+                print(f"✅ Filter by region only (no language codes) selected")
+                break
             else:
-                print(f"{Colors.RED}❌ Invalid choice. Please select 0, 1, or 2{Colors.END}")
+                print(f"{Colors.RED}❌ Invalid choice. Please select 0, 1, 2, or 3{Colors.END}")
         except ValueError:
             print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
     
@@ -1045,7 +1064,7 @@ def get_user_priority_selection(analysis, files):
         else:
             print(f"{Colors.RED}❌ No specific countries detected in files{Colors.END}")
     
-    elif selection_mode == 'region':
+    elif selection_mode == 'region_language':
         # First, select the region
         print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 2A: SELECT REGION 🔻{Colors.END}")
         print(f"{Colors.BOLD}Select the continental region:{Colors.END}")
@@ -1123,10 +1142,45 @@ def get_user_priority_selection(analysis, files):
                 except ValueError:
                     print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
     
+    elif selection_mode == 'region_only':
+        # Select region without language codes
+        print(f"\n{Colors.BOLD}{Colors.RED}🔻 STEP 2: SELECT REGION 🔻{Colors.END}")
+        print(f"{Colors.BOLD}Select the continental region:{Colors.END}")
+        print(f"{Colors.HEADER}{'─' * 60}{Colors.END}")
+        print(f"{Colors.YELLOW}⚠️  This will only include files with ONLY the region tag")
+        print(f"   Example: (Europe) → ✅  |  (Europe)(En,Fr,De) → ❌{Colors.END}")
+        print(f"{Colors.HEADER}{'─' * 60}{Colors.END}")
+        
+        region_list = list(sorted(regions.items(), key=lambda x: x[1], reverse=True))
+        
+        for i, (region, count) in enumerate(region_list, 1):
+            region_name = region_names.get(region, region)
+            print(f"  {Colors.BOLD}{i}.{Colors.END} {Colors.HEADER}{region} - {region_name}{Colors.END} ({count:,} files)")
+        
+        print(f"{Colors.HEADER}{'─' * 60}{Colors.END}")
+        
+        while True:
+            try:
+                choice = input(f"\n{Colors.BOLD}{Colors.GREEN}👉 Select region (1-{len(region_list)}): {Colors.END}").strip()
+                choice_num = int(choice)
+                
+                if 1 <= choice_num <= len(region_list):
+                    selected_region = region_list[choice_num - 1][0]
+                    region_name = region_names.get(selected_region, selected_region)
+                    print(f"✅ Selected region: {Colors.HEADER}{selected_region} - {region_name}{Colors.END}")
+                    print(f"   → Will search for files with ONLY: {Colors.HEADER}({selected_region}){Colors.END} (no language codes)")
+                    selected_language = None  # No language filtering for region_only mode
+                    break
+                else:
+                    print(f"{Colors.RED}❌ Invalid choice. Please select 1-{len(region_list)}{Colors.END}")
+            except ValueError:
+                print(f"{Colors.RED}❌ Invalid input. Please enter a number{Colors.END}")
+    
     return {
         'language': selected_language,
         'region': selected_region,
-        'specific_country': selected_specific_country
+        'specific_country': selected_specific_country,
+        'filter_mode': selection_mode  # Add the selection mode to the config
     }
 
 def has_language_in_file(filename, language_code):
@@ -1321,27 +1375,48 @@ def ask_yes_no(question):
 
 def create_custom_config(user_priorities, analysis):
     """Creates a custom configuration based on user priorities"""
-    # Determine the selection mode and create appropriate config
-    if user_priorities.get('specific_country'):
-        # Country-specific mode
-        config_name = f"Country: {user_priorities['specific_country']}"
-        filter_mode = 'country'
-    elif user_priorities.get('region') and user_priorities.get('language'):
-        # Region + language mode
-        config_name = f"Region: {user_priorities['region']} (Language: {user_priorities['language']})"
-        filter_mode = 'region_language'
-    elif user_priorities.get('language'):
-        # Language only mode
-        config_name = f"Language: {user_priorities['language']}"
-        filter_mode = 'language'
-    elif user_priorities.get('region'):
-        # Region only mode
-        config_name = f"Region: {user_priorities['region']}"
-        filter_mode = 'region'
+    # Check if filter_mode was explicitly set (e.g., 'region_only')
+    explicit_filter_mode = user_priorities.get('filter_mode')
+    
+    if explicit_filter_mode:
+        # Use the explicitly provided filter mode
+        filter_mode = explicit_filter_mode
+        
+        # Create appropriate config name based on the mode
+        if filter_mode == 'region_only':
+            config_name = f"Region Only: {user_priorities['region']} (no language codes)"
+        elif filter_mode == 'country':
+            config_name = f"Country: {user_priorities['specific_country']}"
+        elif filter_mode == 'region_language':
+            config_name = f"Region: {user_priorities['region']} (Language: {user_priorities['language']})"
+        elif filter_mode == 'language':
+            config_name = f"Language: {user_priorities['language']}"
+        elif filter_mode == 'region':
+            config_name = f"Region: {user_priorities['region']}"
+        else:
+            config_name = "All files (No filter)"
     else:
-        # No filter mode
-        config_name = "All files (No filter)"
-        filter_mode = 'none'
+        # Legacy behavior: determine mode from priorities
+        if user_priorities.get('specific_country'):
+            # Country-specific mode
+            config_name = f"Country: {user_priorities['specific_country']}"
+            filter_mode = 'country'
+        elif user_priorities.get('region') and user_priorities.get('language'):
+            # Region + language mode
+            config_name = f"Region: {user_priorities['region']} (Language: {user_priorities['language']})"
+            filter_mode = 'region_language'
+        elif user_priorities.get('language'):
+            # Language only mode
+            config_name = f"Language: {user_priorities['language']}"
+            filter_mode = 'language'
+        elif user_priorities.get('region'):
+            # Region only mode
+            config_name = f"Region: {user_priorities['region']}"
+            filter_mode = 'region'
+        else:
+            # No filter mode
+            config_name = "All files (No filter)"
+            filter_mode = 'none'
     
     return {
         'name': config_name,
@@ -1453,6 +1528,31 @@ def analyze_files_with_priorities(files, config, include_demos):
             else:
                 reason = f"Not from selected region: {region}"
         
+        elif filter_mode == 'region_only':
+            # Filter by region tag only, without language codes
+            # This matches files like "007 Racing (Europe).zip" but NOT "007 Racing (Europe)(En,Fr,De).zip"
+            region = config.get('region')
+            region_pattern = fr'\({region}\)'
+            
+            # Check if file has the region tag
+            has_region = re.search(region_pattern, filename, re.IGNORECASE)
+            
+            if has_region:
+                # Now check that there are NO language codes anywhere in the filename
+                # Language codes pattern: (En), (En,Fr,De), (En,Es), etc.
+                # Match: opening paren, then 2-letter code(s) with optional commas and spaces, closing paren
+                # Examples: (En), (En,Fr), (En, Fr), (En,Es,De), etc.
+                lang_pattern = r'\(\s*[A-Z][a-z](?:\s*,\s*[A-Z][a-z])*\s*\)'
+                has_language_codes = re.search(lang_pattern, filename)
+                
+                if not has_language_codes:
+                    # File has region but no language codes - perfect!
+                    include_file = True
+                else:
+                    reason = f"Has {region} but also contains language codes (excluded in region-only mode)"
+            else:
+                reason = f"Not from selected region: {region}"
+        
         # Add to appropriate list
         if include_file:
             file_with_info = {
@@ -1467,6 +1567,184 @@ def analyze_files_with_priorities(files, config, include_demos):
     print(f"{Colors.YELLOW}⚠ {len(invalid)} files excluded{Colors.END}")
     
     return valid, invalid
+
+def check_existing_files(files, output_dir):
+    """
+    Intelligently checks which files already exist in the output directory
+    Uses keyword matching to detect same game in different languages/regions
+    
+    Returns: (new_files, existing_files, similar_files)
+    - new_files: list of files that don't exist and have no similar match
+    - existing_files: list of files that already exist (exact match)
+    - similar_files: list of tuples (file_to_download, existing_file, matching_keywords)
+    """
+    output_path = Path(output_dir)
+    
+    # Create directory if it doesn't exist
+    if not output_path.exists():
+        return files, [], []
+    
+    # Get all existing ZIP files AND extracted directories in the directory
+    existing_items = []
+    try:
+        # Check for ZIP files
+        for existing_file in output_path.glob("*.zip"):
+            existing_items.append({
+                'name': existing_file.name,
+                'path': existing_file,
+                'type': 'zip',
+                'keywords': extract_key_words(existing_file.name)
+            })
+        
+        # Check for extracted directories (folders with game names)
+        for existing_dir in output_path.iterdir():
+            if existing_dir.is_dir():
+                # Skip common system directories
+                if existing_dir.name.startswith('.'):
+                    continue
+                
+                # Add directory to comparison list
+                # Treat directory name as if it were a ZIP file for keyword matching
+                dir_name_as_zip = f"{existing_dir.name}.zip"
+                existing_items.append({
+                    'name': existing_dir.name,
+                    'path': existing_dir,
+                    'type': 'directory',
+                    'keywords': extract_key_words(dir_name_as_zip)
+                })
+    except Exception:
+        # If directory doesn't exist or can't be read, return all files as new
+        return files, [], []
+    
+    new_files = []
+    existing_files = []
+    similar_files = []
+    
+    for file_info in files:
+        filename = file_info['name']
+        # Clean filename for filesystem (same logic as in download)
+        safe_filename = filename.replace('/', '_').replace('\\', '_')
+        file_path = output_path / safe_filename
+        
+        # Check for exact match first
+        if file_path.exists():
+            # File already exists with exact same name
+            existing_files.append({
+                **file_info,
+                'path': file_path,
+                'match_type': 'exact'
+            })
+            continue
+        
+        # Extract keywords from the file to download
+        file_keywords = extract_key_words(filename)
+        
+        # Check for similar files using keyword matching
+        best_match = None
+        best_match_score = 0
+        
+        for existing in existing_items:
+            # STRICT CHECK 0: Check disc numbers first - different discs are different files!
+            # Extract disc information from both filenames
+            file_disc = extract_disc_info(filename)
+            existing_disc = extract_disc_info(existing['name'])
+            
+            # If both have disc numbers but they're different, they're different discs of the same game
+            if file_disc is not None and existing_disc is not None and file_disc != existing_disc:
+                continue  # Skip - different discs (e.g., Disc 1 vs Disc 2)
+            
+            # Calculate keyword overlap
+            matching_keywords = set(file_keywords) & set(existing['keywords'])
+            
+            # Extract ALL words (including numbers and sport types) from both titles
+            file_numbers = [k for k in file_keywords if k.isdigit() or k in ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x']]
+            existing_numbers = [k for k in existing['keywords'] if k.isdigit() or k in ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x']]
+            
+            # STRICT CHECK 1: If both have numbers but they're different, it's a different game
+            if file_numbers and existing_numbers and set(file_numbers) != set(existing_numbers):
+                continue  # Skip - different versions (e.g., Ace Combat 2 vs 3)
+            
+            # STRICT CHECK 2: If one has numbers and the other doesn't, they're probably different
+            if (file_numbers and not existing_numbers) or (not file_numbers and existing_numbers):
+                # This catches cases like "Tony Hawk Pro Skater" vs "Tony Hawk Pro Skater 2"
+                # The number indicates a sequel/different version
+                # Only allow match if keywords are short (<=2 words) - these might be year suffixes
+                file_kw_no_numbers = [k for k in file_keywords if not k.isdigit()]
+                existing_kw_no_numbers = [k for k in existing['keywords'] if not k.isdigit()]
+                
+                # If both have 2 or fewer words (excluding numbers), might be annual series
+                # Otherwise, the number likely indicates a sequel/version
+                if len(file_kw_no_numbers) > 2 or len(existing_kw_no_numbers) > 2:
+                    continue  # Skip - likely different versions (e.g., "Game" vs "Game 2")
+            
+            # Get meaningful matches (excluding generic words)
+            meaningful_matches = [k for k in matching_keywords if k not in ['zip', 'rar', '7z']]
+            
+            # STRICT CHECK 3: Require at least 3 matching keywords OR 2 if they're very specific
+            min_keywords = 3
+            if len(meaningful_matches) >= 2:
+                # Check if we have specific/unique words (longer than 4 chars OR numbers)
+                specific_words = [k for k in meaningful_matches if len(k) > 4 or k.isdigit()]
+                # Also check if both files have short titles (2-3 keywords total)
+                file_kw_count = len([k for k in file_keywords if k not in ['zip', 'rar', '7z']])
+                existing_kw_count = len([k for k in existing['keywords'] if k not in ['zip', 'rar', '7z']])
+                
+                # Allow 2 keywords if:
+                # - Both words are specific (long or numbers), OR
+                # - Both files have short titles (2-3 keywords) and all match
+                if len(specific_words) >= 2 or (file_kw_count <= 3 and existing_kw_count <= 3 and len(meaningful_matches) == file_kw_count):
+                    min_keywords = 2  # Allow 2 keywords if they're very specific or complete short title match
+            
+            if len(meaningful_matches) < min_keywords:
+                continue  # Not enough keywords
+            
+            # STRICT CHECK 4: Check for sport-specific or genre-specific keywords that differ
+            # This prevents "All Star Boxing" from matching "All Star Tennis"
+            sport_keywords = {'boxing', 'tennis', 'football', 'soccer', 'basketball', 'baseball', 'hockey', 
+                            'racing', 'golf', 'cricket', 'rugby', 'volleyball', 'wrestling'}
+            
+            file_sports = set(file_keywords) & sport_keywords
+            existing_sports = set(existing['keywords']) & sport_keywords
+            
+            # If they have different sports keywords, they're different games
+            if file_sports and existing_sports and file_sports != existing_sports:
+                continue  # Different sports games
+            
+            # Calculate match score (percentage of keywords that match)
+            # Remove generic file extensions from count
+            file_kw_meaningful = [k for k in file_keywords if k not in ['zip', 'rar', '7z']]
+            existing_kw_meaningful = [k for k in existing['keywords'] if k not in ['zip', 'rar', '7z']]
+            total_keywords = max(len(file_kw_meaningful), len(existing_kw_meaningful))
+            
+            if total_keywords > 0:
+                match_score = len(meaningful_matches) / total_keywords
+                
+                # STRICT CHECK 5: Require at least 70% match for similar files (increased from 60%)
+                if match_score > best_match_score and match_score >= 0.70:
+                    best_match_score = match_score
+                    best_match = {
+                        'existing_file': existing['name'],
+                        'existing_path': existing['path'],
+                        'existing_type': existing['type'],  # 'zip' or 'directory'
+                        'matching_keywords': meaningful_matches,
+                        'match_score': match_score
+                    }
+        
+        if best_match:
+            # Found a similar file (same game, different region/language)
+            similar_files.append({
+                **file_info,
+                'similar_to': best_match['existing_file'],
+                'similar_path': best_match['existing_path'],
+                'similar_type': best_match['existing_type'],  # 'zip' or 'directory'
+                'matching_keywords': best_match['matching_keywords'],
+                'match_score': best_match['match_score']
+            })
+        else:
+            # No match found - this is a new file
+            new_files.append(file_info)
+    
+    return new_files, existing_files, similar_files
 
 def show_preview_with_priorities(url, config, valid, invalid, include_demos):
     """Shows preview of selected files (no priorities, just direct filter results)"""
@@ -1820,8 +2098,115 @@ def main():
             else:
                 break
         
-        # Show preview
-        show_preview_with_priorities(url, custom_config, valid, invalid, include_demos)
+        # Ask for output directory BEFORE showing preview (to check existing files)
+        default_output = 'downloads'
+        print(f"\n{Colors.BOLD}📁 Output directory configuration:{Colors.END}")
+        output_input = input(f"{Colors.BOLD}Enter output directory [default: {default_output}]: {Colors.END}").strip()
+        output_dir = output_input if output_input else default_output
+        
+        # Check for existing files in the output directory
+        print(f"\n{Colors.CYAN}🔍 Analyzing existing files in '{output_dir}' using intelligent keyword matching...{Colors.END}")
+        new_files, existing_files, similar_files = check_existing_files(valid, output_dir)
+        
+        # Show information about existing files
+        total_existing = len(existing_files) + len(similar_files)
+        
+        if existing_files:
+            existing_size = sum(f['size'] for f in existing_files)
+            print(f"\n{Colors.GREEN}📦 Found {len(existing_files)} exact matches ({convert_bytes_to_readable(existing_size)}){Colors.END}")
+        
+        # Show similar files (same game, different region/language)
+        if similar_files:
+            similar_size = sum(f['size'] for f in similar_files)
+            print(f"\n{Colors.YELLOW}🔍 Found {len(similar_files)} similar games (same game, different region/language){Colors.END}")
+            print(f"{Colors.YELLOW}   Total size: {convert_bytes_to_readable(similar_size)}{Colors.END}")
+            
+            # Show examples of similar files
+            print(f"\n{Colors.CYAN}🧠 KEYWORD MATCHING EXAMPLES:{Colors.END}")
+            for i, similar in enumerate(similar_files[:5], 1):
+                keywords = ', '.join(similar['matching_keywords'][:4])
+                match_percent = int(similar['match_score'] * 100)
+                similar_type = similar.get('similar_type', 'zip')
+                type_icon = '📦' if similar_type == 'zip' else '📁'
+                type_label = 'ZIP' if similar_type == 'zip' else 'Extracted'
+                
+                print(f"\n  {i}. {Colors.BOLD}Match: {match_percent}%{Colors.END} | Keywords: {Colors.YELLOW}{keywords}{Colors.END}")
+                print(f"     📥 To download: {Colors.CYAN}{similar['name']}{Colors.END}")
+                print(f"     {type_icon} Already have: {Colors.GREEN}{similar['similar_to']}{Colors.END} ({type_label})")
+            
+            if len(similar_files) > 5:
+                print(f"\n  ... and {len(similar_files) - 5} more similar matches")
+        
+        # Ask user what to do if there are existing or similar files
+        files_to_download = new_files  # Default: only truly new files
+        
+        if total_existing > 0:
+            print(f"\n{Colors.BOLD}What do you want to do?{Colors.END}")
+            print(f"  1. {Colors.GREEN}Skip all existing/similar files{Colors.END} (download only {len(new_files)} new games)")
+            print(f"  2. {Colors.YELLOW}Download similar files anyway{Colors.END} (different regions/languages)")
+            print(f"  3. {Colors.RED}Re-download everything{Colors.END} (overwrite all)")
+            
+            while True:
+                choice = input(f"\n{Colors.BOLD}Select option (1-3) [default: 1]: {Colors.END}").strip()
+                if not choice:
+                    choice = '1'
+                
+                if choice == '1':
+                    # Skip both exact matches and similar files
+                    files_to_download = new_files
+                    print(f"\n{Colors.GREEN}✅ Will skip {total_existing} existing/similar files{Colors.END}")
+                    print(f"   → Downloading {len(new_files)} truly new games")
+                    break
+                elif choice == '2':
+                    # Skip exact matches but download similar files
+                    files_to_download = new_files + similar_files
+                    print(f"\n{Colors.YELLOW}⚠️  Will skip {len(existing_files)} exact matches but download {len(similar_files)} similar files{Colors.END}")
+                    print(f"   → Downloading {len(files_to_download)} games total")
+                    break
+                elif choice == '3':
+                    # Re-download everything
+                    files_to_download = valid
+                    print(f"\n{Colors.RED}⚠️  Will re-download all {len(valid)} files (existing files will be overwritten){Colors.END}")
+                    break
+                else:
+                    print(f"{Colors.RED}Invalid option. Please enter 1, 2, or 3.{Colors.END}")
+        else:
+            # No existing files, download all
+            print(f"\n{Colors.GREEN}✅ No existing files found, all {len(new_files)} files will be downloaded{Colors.END}")
+        
+        files_to_show = files_to_download
+        
+        # Show preview with the appropriate file list
+        show_preview_with_priorities(url, custom_config, files_to_show, invalid, include_demos)
+        
+        # Show skipped files summary if any were skipped
+        skipped_count = len(valid) - len(files_to_show)
+        if skipped_count > 0:
+            print(f"\n{Colors.CYAN}📋 SKIPPED FILES ({skipped_count} files will not be downloaded):{Colors.END}")
+            print(f"{Colors.CYAN}{'─' * 80}{Colors.END}")
+            
+            # Show exact matches
+            if existing_files and len(files_to_show) < len(valid):
+                print(f"\n  {Colors.GREEN}Exact matches ({len(existing_files)}):{Colors.END}")
+                for i, file_info in enumerate(existing_files[:3], 1):
+                    size_text = convert_bytes_to_readable(file_info['size'])
+                    print(f"    ⏭️  {file_info['name'][:63]:<65} {size_text:>10}")
+                if len(existing_files) > 3:
+                    print(f"    ... and {len(existing_files) - 3} more exact matches")
+            
+            # Show similar files if they're being skipped
+            if similar_files and files_to_show == new_files:
+                print(f"\n  {Colors.YELLOW}Similar games ({len(similar_files)}):{Colors.END}")
+                for i, file_info in enumerate(similar_files[:3], 1):
+                    size_text = convert_bytes_to_readable(file_info['size'])
+                    keywords = ', '.join(file_info['matching_keywords'][:3])
+                    print(f"    🔍 {file_info['name'][:60]:<62} {size_text:>10}")
+                    print(f"       → Similar to: {file_info['similar_to'][:70]}")
+                    print(f"       → Matching keywords: {Colors.YELLOW}{keywords}{Colors.END}")
+                if len(similar_files) > 3:
+                    print(f"    ... and {len(similar_files) - 3} more similar matches")
+            
+            print(f"{Colors.CYAN}{'─' * 80}{Colors.END}")
         
         # Ask for download confirmation
         if ask_yes_no("Do you want to proceed with the download?"):
@@ -1833,18 +2218,13 @@ def main():
             else:
                 test_mode = False
             
-            # Ask for output directory
-            default_output = 'downloads'
-            output_input = input(f"\n{Colors.BOLD}Output directory [default: {default_output}]: {Colors.END}").strip()
-            output_dir = output_input if output_input else default_output
-            
             print(f"\n{Colors.GREEN}📁 Output directory: {output_dir}{Colors.END}")
             
             if test_mode:
                 print(f"{Colors.YELLOW}🧪 TEST MODE: Only downloading first 10 files{Colors.END}")
             
-            # Start actual download
-            downloaded, skipped, errors = download_selected_files(valid, output_dir, max_files)
+            # Start actual download with the appropriate file list
+            downloaded, skipped, errors = download_selected_files(files_to_show, output_dir, max_files)
             
             if downloaded > 0:
                 print(f"\n{Colors.GREEN}🎉 Download completed! {downloaded} files downloaded successfully!{Colors.END}")
