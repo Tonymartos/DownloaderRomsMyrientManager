@@ -19,7 +19,7 @@ from collections import defaultdict
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, unquote
 
-# Import functions from downloadroms.py
+# Import functions from downloadroms.py and modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from downloadroms import (
     extract_base_title,
@@ -30,116 +30,51 @@ from downloadroms import (
     download_and_filter
 )
 
-class Colors:
-    """ANSI color codes for terminal output"""
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-    END = '\033[0m'
+# Import from modules
+from modules.filters import (
+    is_demo_or_variant,
+    has_language_in_file,
+    is_valid_region_for_config,
+    extract_key_words,
+    extract_disc_info,
+    get_priority_language_from_config,
+    check_keywords_similarity
+)
+from modules.display import (
+    Colors,
+    print_banner,
+    print_menu,
+    convert_bytes_to_readable,
+    print_preview_table,
+    show_available_options,
+    show_exclusive_games_options,
+    ask_confirmation,
+    ask_yes_no,
+    print_progress
+)
+from modules.config import (
+    get_language_config,
+    create_custom_config,
+    get_all_available_configs
+)
+from modules.extractor import extract_downloaded_files
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 def is_development_mode():
     """Check if running from source code (development) or compiled executable"""
     # PyInstaller sets sys.frozen attribute when compiled
     return not getattr(sys, 'frozen', False)
 
-def print_banner():
-    """Prints the welcome banner"""
-    os.system('clear' if os.name != 'nt' else 'cls')
-    banner = f"""
-{Colors.CYAN}{'='*80}
-{Colors.BOLD}🎮 MYRIENT ROM MANAGER - Interactive Mode 🎮{Colors.END}
-{Colors.CYAN}{'='*80}{Colors.END}
 
-{Colors.YELLOW}Welcome to the ROM downloader for Myrient platform!{Colors.END}
-{Colors.BLUE}📦 Optimized for: https://myrient.erista.me/{Colors.END}
+# ============================================================================
+# FILE EXTRACTION AND PROCESSING (Legacy wrapper)
+# ============================================================================
 
-"""
-    print(banner)
-
-def print_menu():
-    """Prints the main menu"""
-    menu = f"""
-{Colors.BOLD}🌍 SELECT PRIORITY LANGUAGE:{Colors.END}
-
-{Colors.GREEN}1.{Colors.END} Spanish (Spain) 🇪🇸
-   Priority: Spain > Europe (with Es) > Japan
-   
-{Colors.GREEN}2.{Colors.END} English (Europe/USA) 🇬🇧
-   Priority: Europe (with En) > USA > Japan
-   
-{Colors.GREEN}3.{Colors.END} French (France) 🇫🇷
-   Priority: France > Europe (with Fr) > Japan
-   
-{Colors.GREEN}4.{Colors.END} German (Germany) 🇩🇪
-   Priority: Germany > Europe (with De) > Japan
-   
-{Colors.GREEN}5.{Colors.END} Italian (Italy) 🇮🇹
-   Priority: Italy > Europe (with It) > Japan
-
-{Colors.GREEN}6.{Colors.END} Japanese (Japan) 🇯🇵
-   Priority: Japan only
-
-{Colors.RED}0.{Colors.END} Exit
-
-"""
-    print(menu)
-
-def get_language_config(choice):
-    """Returns the language configuration based on user choice"""
-    configs = {
-        '1': {
-            'name': 'Spanish (Spain)',
-            'regions': ['Spain', 'Europe', 'Japan'],
-            'language_code': 'Es',
-            'priority': {'Spain': 1, 'Europe': 2, 'Japan': 3, 'Es': 4}
-        },
-        '2': {
-            'name': 'English (Europe/USA)',
-            'regions': ['Europe', 'USA', 'Japan'],
-            'language_code': 'En',
-            'priority': {'Europe': 1, 'USA': 2, 'Japan': 3, 'En': 4}
-        },
-        '3': {
-            'name': 'French (France)',
-            'regions': ['France', 'Europe', 'Japan'],
-            'language_code': 'Fr',
-            'priority': {'France': 1, 'Europe': 2, 'Japan': 3, 'Fr': 4}
-        },
-        '4': {
-            'name': 'German (Germany)',
-            'regions': ['Germany', 'Europe', 'Japan'],
-            'language_code': 'De',
-            'priority': {'Germany': 1, 'Europe': 2, 'Japan': 3, 'De': 4}
-        },
-        '5': {
-            'name': 'Italian (Italy)',
-            'regions': ['Italy', 'Europe', 'Japan'],
-            'language_code': 'It',
-            'priority': {'Italy': 1, 'Europe': 2, 'Japan': 3, 'It': 4}
-        },
-        '6': {
-            'name': 'Japanese (Japan)',
-            'regions': ['Japan'],
-            'language_code': None,
-            'priority': {'Japan': 1}
-        }
-    }
-    return configs.get(choice)
-
-def convert_bytes_to_readable(bytes_size):
-    """Converts bytes to human-readable format"""
-    for unit in ['B', 'KiB', 'MiB', 'GiB', 'TiB']:
-        if bytes_size < 1024.0:
-            return f"{bytes_size:.1f} {unit}"
-        bytes_size /= 1024.0
-    return f"{bytes_size:.1f} PiB"
-
-def extract_downloaded_files(output_dir, delete_zips_after=False):
+def extract_downloaded_files_legacy(output_dir, delete_zips_after=False):
     """Extract all ZIP files in the output directory
     
     Args:
@@ -242,8 +177,8 @@ def fetch_directory_listing(url, include_demos=False):
                 # Convert size to bytes
                 size_bytes = parse_size(size_text)
                 
-                # Include or exclude demos (check both original and decoded)
-                if not include_demos and ('(Demo)' in href or '(Demo)' in decoded_name):
+                # Include or exclude demos/variants (check both original and decoded)
+                if not include_demos and (is_demo_or_variant(href) or is_demo_or_variant(decoded_name)):
                     continue
                 
                 full_url = urljoin(url, href)
@@ -670,98 +605,10 @@ def detect_exclusive_games(files, priority_games=None):
     
     return dict(filtered_exclusive_games)
 
-def extract_key_words(title):
-    """Extracts key identifying words from a game title for duplicate detection"""
-    # Remove file extension if present
-    title = re.sub(r'\.(zip|rar|7z)$', '', title, flags=re.IGNORECASE)
-    
-    # Remove disc information temporarily to focus on game title
-    title_without_disc = re.sub(r'\(Disc \d+\)', '', title, flags=re.IGNORECASE)
-    title_without_disc = re.sub(r'Disc \d+', '', title_without_disc, flags=re.IGNORECASE)
-    
-    # Remove common parenthetical information (languages, regions, etc.)
-    title_clean = re.sub(r'\([^)]*\)', '', title_without_disc)
-    
-    # CONSERVATIVE APPROACH: Keep ALL years as they indicate different game versions
-    # Examples where years indicate DIFFERENT games:
-    # - "All Star Tennis" vs "All Star Tennis 2000" → Different games
-    # - "FIFA 99" vs "FIFA 2000" → Different annual releases
-    # - "Need for Speed '99" vs "Need for Speed 2000" → Different versions
-    # 
-    # Years (2-4 digits like '99, 2000, 2001) are kept as keywords and will be
-    # verified by CHECK 1 in the matching algorithm to detect different versions
-    
-    # Remove common separators and normalize (including apostrophes for years like '99)
-    title_clean = re.sub(r"[-_.:,'']", ' ', title_clean)
-    title_clean = re.sub(r'\s+', ' ', title_clean).strip()
-    
-    # Split into words
-    words = title_clean.split()
-    
-    # Filter out common words that don't help identify games
-    common_words = {
-        'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by',
-        'el', 'la', 'los', 'las', 'de', 'del', 'y', 'o', 'en', 'con', 'por', 'para',
-        'le', 'la', 'les', 'de', 'du', 'et', 'ou', 'en', 'avec', 'pour', 'par',
-        'der', 'die', 'das', 'den', 'und', 'oder', 'von', 'mit', 'für', 'auf',
-        'il', 'la', 'lo', 'gli', 'le', 'di', 'e', 'o', 'con', 'per', 'da'
-    }
-    
-    # Keep words that are 2+ characters and not common words
-    # Exception: single-digit numbers are kept (version numbers like 2, 3, 4)
-    key_words = []
-    for word in words:
-        word_clean = word.lower().strip()
-        # Keep if: (2+ chars OR single digit) AND not a common word
-        if word_clean not in common_words:
-            if (len(word_clean) >= 2 and (word_clean.isdigit() or word_clean.isalpha())) or \
-               (len(word_clean) == 1 and word_clean.isdigit()):
-                key_words.append(word_clean)
-    
-    return key_words
 
-def extract_disc_info(filename):
-    """Extracts disc information from filename"""
-    disc_match = re.search(r'\(Disc (\d+)\)', filename, re.IGNORECASE)
-    if disc_match:
-        return int(disc_match.group(1))
-    
-    disc_match = re.search(r'Disc (\d+)', filename, re.IGNORECASE)
-    if disc_match:
-        return int(disc_match.group(1))
-    
-    return None
-
-def get_priority_language_from_config(config):
-    """Gets the priority language from config for comparison"""
-    return config.get('primary_language', '')
-
-def check_keywords_similarity(exclusive_title, valid_titles, threshold=0.7):
-    """Checks if exclusive game has similar keywords to any valid game"""
-    exclusive_keywords = set(extract_key_words(exclusive_title))
-    
-    if not exclusive_keywords:
-        return False, None
-    
-    for valid_title in valid_titles:
-        valid_keywords = set(extract_key_words(valid_title))
-        
-        if not valid_keywords:
-            continue
-        
-        # Calculate similarity based on keyword overlap
-        intersection = exclusive_keywords & valid_keywords
-        union = exclusive_keywords | valid_keywords
-        
-        if len(union) == 0:
-            similarity = 0
-        else:
-            similarity = len(intersection) / len(union)
-        
-        if similarity >= threshold:
-            return True, valid_title
-    
-    return False, None
+# ============================================================================
+# EXCLUSIVE GAMES AND USER SELECTION
+# ============================================================================
 
 def show_exclusive_games_options(exclusive_games):
     """Shows available exclusive games by country and asks user for selection"""
@@ -1183,36 +1030,10 @@ def get_user_priority_selection(analysis, files):
         'filter_mode': selection_mode  # Add the selection mode to the config
     }
 
-def has_language_in_file(filename, language_code):
-    """Checks if the file contains the specified language code"""
-    if not language_code:
-        return True
-    
-    # Search for language patterns like (En,Fr,De,Es,It)
-    lang_match = re.search(r'\([A-Z][a-z](?:,[A-Z][a-z])+\)', filename)
-    if lang_match:
-        languages = lang_match.group(0)
-        return language_code in languages
-    
-    # If no languages specified in Europe, accept it
-    if 'Europe' in filename and not lang_match:
-        return True
-    
-    return True
 
-def is_valid_region_for_config(filename, config):
-    """Validates if the file matches the selected language configuration"""
-    region = extract_region(filename)
-    
-    # Check if region is in allowed regions
-    if region not in config['regions'] and region not in config['priority']:
-        return False
-    
-    # For Europe files, check language
-    if 'Europe' in filename and config['language_code']:
-        return has_language_in_file(filename, config['language_code'])
-    
-    return True
+# ============================================================================
+# FILE ANALYSIS AND FILTERING
+# ============================================================================
 
 def analyze_files(files, config, include_demos):
     """Analyzes files and categorizes them as valid or invalid"""
@@ -1222,9 +1043,9 @@ def analyze_files(files, config, include_demos):
     for file_info in files:
         filename = file_info['name']
         
-        # Skip demos if not included
-        if not include_demos and '(Demo)' in filename:
-            invalid.append((filename, "Demo file excluded", file_info['size']))
+        # Skip demos/variants if not included
+        if not include_demos and is_demo_or_variant(filename):
+            invalid.append((filename, "Demo/variant file excluded", file_info['size']))
             continue
         
         # Validate region
@@ -1440,14 +1261,9 @@ def analyze_files_with_priorities(files, config, include_demos):
     for file_info in files:
         filename = file_info['name']
         
-        # Skip demos if not included
-        if not include_demos and ('(Demo)' in filename or '(demo)' in filename.lower()):
-            invalid.append((filename, "Demo file excluded", file_info['size']))
-            continue
-        
-        # Skip revision and beta versions
-        if re.search(r'\(Rev\s*\d*\)|\(Beta\)', filename, re.IGNORECASE):
-            invalid.append((filename, "Revision or Beta version excluded", file_info['size']))
+        # Skip demos/variants if not included
+        if not include_demos and is_demo_or_variant(filename):
+            invalid.append((filename, "Demo/variant file excluded", file_info['size']))
             continue
         
         # Apply filter based on mode
